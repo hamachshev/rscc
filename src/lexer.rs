@@ -27,7 +27,7 @@ pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
     Ok(tokens)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Token {
     CurlyBraceOpen,
     CurlyBraceClose,
@@ -64,7 +64,7 @@ fn is_alpha(byte: u8) -> bool {
 fn lex_alpha(str_start: u8, iterator: &mut Peekable<Bytes<impl Read>>) -> Token {
     let mut string = vec![str_start];
     while let Some(Ok(byte)) = iterator.peek() {
-        if is_alpha(*byte) {
+        if is_alpha(*byte) || is_num(*byte) {
             string.push(iterator.next().unwrap().unwrap());
         } else {
             break;
