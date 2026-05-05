@@ -1,4 +1,4 @@
-use rscc::lexer;
+use rscc::{lexer, parser};
 use std::{env::args, path::PathBuf};
 
 #[allow(unused)]
@@ -9,7 +9,8 @@ fn main() {
         .into();
 
     let file = std::fs::File::open(path).unwrap();
-    println!("{:?}", lexer::lex(file))
+    let lex = lexer::lex(file).unwrap();
+    println!("{:?}", parser::parse_program(&mut lex.into_iter()))
 }
 
 #[cfg(test)]
