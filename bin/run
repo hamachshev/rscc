@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -e
+
+input="$1"
+
+if [ -z "$input" ]; then
+  echo "usage: ./bin/run.sh run <file.c>"
+  exit 1
+fi
+build_dir="build"
+# mkdir -p $build_dir
+
+# strip extension safely
+base="${input%.*}"
+asm="${base}.s"
+bin="${base}.out"
+
+echo "[1/4] building via cargo..."
+cargo run -- "$input"
+
+echo "[2/4] assembling with clang (x86_64)..."
+arch -x86_64 clang -x assembler "$build_dir/$asm" -o "$build_dir/$bin"
+
+echo "[3/4] running..."
+arch -x86_64 "./$build_dir/$bin"
+

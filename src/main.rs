@@ -1,5 +1,5 @@
 use rscc::{codegen, lexer, parser};
-use std::{env::args, ffi::OsString, os::unix::ffi::OsStrExt, path::PathBuf};
+use std::{env::args, ffi::OsString, fs::DirBuilder, os::unix::ffi::OsStrExt, path::PathBuf};
 
 #[allow(unused)]
 fn main() {
@@ -16,9 +16,17 @@ fn main() {
     let parse = parser::parse_program(&mut lex.into_iter());
     let codegen = codegen::gen_program(parse);
     let output_filename = match output_filename {
-        Some(n) => OsString::from(n),
+        Some(n) => OsString::from(path),
         None => {
-            path.set_extension("o");
+            let c_path = path;
+            let mut path = PathBuf::from("build/");
+            if !path.exists() {
+                DirBuilder::new()
+                    .create(&path)
+                    .expect("failed to create build dir")
+            }
+            path.push(c_path);
+            path.set_extension("s");
             OsString::from(path)
         }
     };
