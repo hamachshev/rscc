@@ -44,8 +44,8 @@ mod test {
 
     #[test]
     fn test() {
-        let valid_tests = fs::read_dir("write_a_c_compiler-master/stage_1/valid").unwrap();
-        let invalid_tests = fs::read_dir("write_a_c_compiler-master/stage_1/invalid").unwrap();
+        let valid_tests = fs::read_dir("write_a_c_compiler-master/stage_2/valid").unwrap();
+        let invalid_tests = fs::read_dir("write_a_c_compiler-master/stage_2/invalid").unwrap();
 
         for test in valid_tests.chain(invalid_tests) {
             let test = test.unwrap();

@@ -18,6 +18,9 @@ pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
             b'(' => Token::ParenOpen,
             b')' => Token::ParenClose,
             b';' => Token::SemiColon,
+            b'-' => Token::Negation,
+            b'!' => Token::LogicalNegation,
+            b'~' => Token::BitComplement,
             n if is_num(n) => lex_num(n, &mut iterator),
             a if is_alpha(a) => lex_alpha(a, &mut iterator),
             u => Token::Unknown(String::from_utf8_lossy(&[u]).to_string()),
@@ -39,6 +42,9 @@ pub enum Token {
     Ident(String),
     Integer(usize),
     Unknown(String),
+    Negation,
+    BitComplement,
+    LogicalNegation,
 }
 
 fn is_num(byte: u8) -> bool {

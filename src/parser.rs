@@ -52,11 +52,20 @@ impl Display for Program {
 #[derive(Debug)]
 pub enum Expression {
     Const(usize),
+    Unary { op: UnaryOp, expr: Box<Expression> },
+}
+
+#[derive(Debug)]
+pub enum UnaryOp {
+    Negation,
+    LogicalNegation,
+    BitwiseComplement,
 }
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expression::Const(n) => write!(f, "{}", n),
+            Expression::Unary { op, expr } => todo!(),
         }
     }
 }
@@ -85,15 +94,34 @@ fn parse_function(iterator: &mut impl Iterator<Item = Token>) -> Function {
 fn parse_statement(iterator: &mut impl Iterator<Item = Token>) -> Statement {
     match get_token(iterator) {
         Token::Return => {
-            let expr = match iterator.next() {
-                Some(Token::Integer(i)) => Expression::Const(i),
-                Some(t) => panic!("expected expression, got {:?}", t),
-                None => panic!("unexpected EOF, expected expression"),
-            };
+            let expr = parse_expression(iterator);
             expect(iterator, Token::SemiColon);
             Statement::Return(expr)
         }
         e => panic!("unexpected token, {:?}", e),
+    }
+}
+
+fn parse_expression(iterator: &mut impl Iterator<Item = Token>) -> Expression {
+    let next = iterator
+        .next()
+        .expect("unexpected EOF, expected expression");
+
+    match next {
+        Token::Integer(i) => Expression::Const(i),
+        Token::Negation => Expression::Unary {
+            op: UnaryOp::Negation,
+            expr: Box::new(parse_expression(iterator)),
+        },
+        Token::BitComplement => Expression::Unary {
+            op: UnaryOp::BitwiseComplement,
+            expr: Box::new(parse_expression(iterator)),
+        },
+        Token::LogicalNegation => Expression::Unary {
+            op: UnaryOp::LogicalNegation,
+            expr: Box::new(parse_expression(iterator)),
+        },
+        t => panic!("expected expression, got {:?}", t),
     }
 }
 
