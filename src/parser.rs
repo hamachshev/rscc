@@ -1,20 +1,64 @@
 #![allow(unused)]
 
 use crate::lexer::Token;
+use std::fmt::Display;
+
 #[derive(Debug)]
 pub enum Statement {
     Return(Expression),
 }
+impl Display for Statement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Statement::Return(expression) => write!(f, "RETURN Int <{}>", expression),
+        }
+    }
+}
 
 #[derive(Debug)]
-pub struct Function(pub String, pub Vec<Statement>);
+pub struct Statements(pub Vec<Statement>);
+
+impl Display for Statements {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for statement in self.0.iter() {
+            write!(f, "{}", statement)?
+        }
+        write!(f, "\n")
+    }
+}
+
+#[derive(Debug)]
+pub struct Function(pub String, pub Statements);
+
+impl Display for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FUN INT {}:\n\tparams:()\n\tbody:\n\t\t{}",
+            self.0, self.1
+        )
+    }
+}
 
 #[derive(Debug)]
 pub struct Program(pub Function);
 
+impl Display for Program {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug)]
 pub enum Expression {
     Const(usize),
+}
+impl Display for Expression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expression::Const(n) => write!(f, "{}", n),
+        }
+    }
 }
 
 pub fn parse_program(iterator: &mut impl Iterator<Item = Token>) -> Program {
@@ -36,7 +80,7 @@ fn parse_function(iterator: &mut impl Iterator<Item = Token>) -> Function {
     statements.push(parse_statement(iterator));
     expect(iterator, Token::CurlyBraceClose);
 
-    Function(ident, statements)
+    Function(ident, Statements(statements))
 }
 fn parse_statement(iterator: &mut impl Iterator<Item = Token>) -> Statement {
     match get_token(iterator) {

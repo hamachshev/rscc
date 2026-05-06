@@ -7,7 +7,7 @@ pub fn gen_program(code: Program) -> String {
 }
 
 fn gen_function(Function(name, statements): Function) -> String {
-    let body: String = statements.into_iter().map(gen_statement).collect();
+    let body: String = statements.0.into_iter().map(gen_statement).collect();
     format!("\t.globl _{name}\n_{name}:\n{body}")
 }
 
