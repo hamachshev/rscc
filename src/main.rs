@@ -1,4 +1,4 @@
-use rscc::{lexer, parser};
+use rscc::{codegen, lexer, parser};
 use std::{env::args, path::PathBuf};
 
 #[allow(unused)]
@@ -10,7 +10,8 @@ fn main() {
 
     let file = std::fs::File::open(path).unwrap();
     let lex = lexer::lex(file).unwrap();
-    println!("{:?}", parser::parse_program(&mut lex.into_iter()))
+    let parse = parser::parse_program(&mut lex.into_iter());
+    println!("{}", codegen::gen_program(parse));
 }
 
 #[cfg(test)]

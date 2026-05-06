@@ -2,18 +2,18 @@
 
 use crate::lexer::Token;
 #[derive(Debug)]
-enum Statement {
+pub enum Statement {
     Return(Expression),
 }
 
 #[derive(Debug)]
-struct Function(String, Vec<Statement>);
+pub struct Function(pub String, pub Vec<Statement>);
 
 #[derive(Debug)]
-pub struct Program(Function);
+pub struct Program(pub Function);
 
 #[derive(Debug)]
-enum Expression {
+pub enum Expression {
     Const(usize),
 }
 
