@@ -4,7 +4,7 @@ set -e
 input="$1"
 
 if [ -z "$input" ]; then
-  echo "usage: ./bin/run.sh run <file.c>"
+  echo "usage: ./bin/run run <file.c>"
   exit 1
 fi
 build_dir="build"

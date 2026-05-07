@@ -10,10 +10,9 @@ fn main() {
         Some(_) => panic!("Unexpected argument. Usage <input.c> [-o output]"),
         None => None,
     };
-
     let file = std::fs::File::open(&path).unwrap();
     let lex = lexer::lex(file).unwrap();
-    let parse = parser::parse_program(&mut lex.into_iter());
+    let parse = parser::parse_program(&mut lex.into_iter().peekable());
     let codegen = codegen::gen_program(parse);
     let output_filename = match output_filename {
         Some(n) => OsString::from(path),
@@ -54,7 +53,8 @@ mod test {
                 .arg(test.path().to_str().unwrap())
                 .output()
                 .unwrap();
-            println!("{}", String::from_utf8_lossy(&res.stdout))
+            println!("{}", String::from_utf8_lossy(&res.stdout));
+            println!("{}", &res.status);
         }
     }
 }

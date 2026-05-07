@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use crate::parser::{Expression, Function, Program, Statement};
+use crate::parser::{BinaryOp, Expression, Function, Program, Statement};
 
 pub fn gen_program(code: Program) -> String {
     gen_function(code.0)
@@ -36,7 +36,41 @@ fn gen_expression(expr: &Expression) -> String {
                 format!("{operand}\tnot \t%eax\n")
             }
         },
+        Expression::Binary { op, l_expr, r_expr } => {
+            let lhs = gen_expression(l_expr);
+            let rhs = gen_expression(r_expr);
+            match op {
+                BinaryOp::Add => {
+                    format!("{lhs}\tpush \t%rax\n{rhs}\tpop \t%rcx\n\taddl \t%ecx, %eax\n")
+                }
+                BinaryOp::Mul => {
+                    format!("{lhs}\tpush \t%rax\n{rhs}\tpop \t%rcx\n\timul \t%ecx, %eax\n")
+                }
+                BinaryOp::Div => {
+                    format!("{rhs}\tpush \t%rax\n{lhs}\n\tcdq\n\tpop \t%rcx\n\tidiv \t%ecx\n")
+                }
+                BinaryOp::Sub => {
+                    format!("{rhs}\tpush \t%rax\n{lhs}\tpop \t%rcx\n\tsubl \t%ecx, %eax\n") // subl
+                    // source, dest = dest - source
+                }
+            }
+        }
     }
 }
+
+trait AsmBuilder {
+    fn movl(self, value: &str, reg: &str) -> Self;
+    fn negate(self, reg: &str) -> Self;
+}
+
+impl AsmBuilder for String {
+    fn movl(mut self, value: &str, reg: &str) -> Self {
+        self.push_str(&format!("\tmovl\t${value}, %{reg}\n"));
+        self
+    }
+
+    fn negate(mut self, reg: &str) -> Self {
+        self.push_str(&format!("\tneg\t{reg}\n"));
+        self
     }
 }

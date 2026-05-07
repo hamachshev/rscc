@@ -21,6 +21,9 @@ pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
             b'-' => Token::Negation,
             b'!' => Token::LogicalNegation,
             b'~' => Token::BitComplement,
+            b'+' => Token::Add,
+            b'*' => Token::Mul,
+            b'/' => Token::Div,
             n if is_num(n) => lex_num(n, &mut iterator),
             a if is_alpha(a) => lex_alpha(a, &mut iterator),
             u => Token::Unknown(String::from_utf8_lossy(&[u]).to_string()),
@@ -30,7 +33,7 @@ pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
     Ok(tokens)
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     CurlyBraceOpen,
     CurlyBraceClose,
@@ -45,6 +48,9 @@ pub enum Token {
     Negation,
     BitComplement,
     LogicalNegation,
+    Add,
+    Mul,
+    Div,
 }
 
 fn is_num(byte: u8) -> bool {

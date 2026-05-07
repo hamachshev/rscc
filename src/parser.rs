@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::lexer::Token;
-use std::fmt::Display;
+use std::{fmt::Display, iter::Peekable};
 
 #[derive(Debug)]
 pub enum Statement {
@@ -52,7 +52,15 @@ impl Display for Program {
 #[derive(Debug)]
 pub enum Expression {
     Const(usize),
-    Unary { op: UnaryOp, expr: Box<Expression> },
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expression>,
+    },
+    Binary {
+        op: BinaryOp,
+        l_expr: Box<Expression>,
+        r_expr: Box<Expression>,
+    },
 }
 
 #[derive(Debug)]
@@ -61,19 +69,65 @@ pub enum UnaryOp {
     LogicalNegation,
     BitwiseComplement,
 }
-impl Display for Expression {
+impl Display for UnaryOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expression::Const(n) => write!(f, "{}", n),
-            Expression::Unary { op, expr } => todo!(),
+            UnaryOp::Negation => write!(f, "-"),
+            UnaryOp::LogicalNegation => write!(f, "!"),
+            UnaryOp::BitwiseComplement => write!(f, "~"),
         }
     }
 }
 
-pub fn parse_program(iterator: &mut impl Iterator<Item = Token>) -> Program {
+#[derive(Debug)]
+pub enum BinaryOp {
+    Add,
+    Mul,
+    Div,
+    Sub,
+}
+impl Display for BinaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BinaryOp::Add => write!(f, "+"),
+            BinaryOp::Mul => write!(f, "*"),
+            BinaryOp::Div => write!(f, "/"),
+            BinaryOp::Sub => write!(f, "-"),
+        }
+    }
+}
+
+impl Expression {
+    fn fmt_tree(&self, f: &mut std::fmt::Formatter<'_>, depth: usize) -> std::fmt::Result {
+        let indent = "\t".repeat(depth);
+        match self {
+            Expression::Const(n) => writeln!(f, "{indent}{n}"),
+
+            Expression::Unary { op, expr } => {
+                writeln!(f, "{indent}Unary ({op}):")?;
+                expr.fmt_tree(f, depth + 1)
+            }
+            Expression::Binary { op, l_expr, r_expr } => {
+                writeln!(f, "{indent}Binary ({op}):")?;
+                writeln!(f, "{indent}\tLHS:")?;
+                l_expr.fmt_tree(f, depth + 2)?;
+                writeln!(f, "{indent}\tRHS:")?;
+                r_expr.fmt_tree(f, depth + 2)
+            }
+        }
+    }
+}
+
+impl Display for Expression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_tree(f, 0)
+    }
+}
+
+pub fn parse_program(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Program {
     Program(parse_function(iterator))
 }
-fn parse_function(iterator: &mut impl Iterator<Item = Token>) -> Function {
+fn parse_function(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Function {
     let return_type = match get_token(iterator) {
         Token::Int => "",
         e => panic!("missing return type"),
@@ -91,7 +145,7 @@ fn parse_function(iterator: &mut impl Iterator<Item = Token>) -> Function {
 
     Function(ident, Statements(statements))
 }
-fn parse_statement(iterator: &mut impl Iterator<Item = Token>) -> Statement {
+fn parse_statement(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Statement {
     match get_token(iterator) {
         Token::Return => {
             let expr = parse_expression(iterator);
@@ -102,26 +156,80 @@ fn parse_statement(iterator: &mut impl Iterator<Item = Token>) -> Statement {
     }
 }
 
-fn parse_expression(iterator: &mut impl Iterator<Item = Token>) -> Expression {
-    let next = iterator
-        .next()
-        .expect("unexpected EOF, expected expression");
+// <exp> ::= <term> { ("+" | "-") <term> }
+// <term> ::= <factor> { ("*" | "/") <factor> }
+// <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int>
 
-    match next {
-        Token::Integer(i) => Expression::Const(i),
-        Token::Negation => Expression::Unary {
-            op: UnaryOp::Negation,
-            expr: Box::new(parse_expression(iterator)),
+fn parse_expression(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut term = parse_term(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::Add | Token::Negation => {
+                iterator.next(); // eat +/-
+                let op = if next == Token::Add {
+                    BinaryOp::Add
+                } else {
+                    BinaryOp::Sub
+                };
+                term = Expression::Binary {
+                    op,
+                    l_expr: Box::new(term),
+                    r_expr: Box::new(parse_term(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    term
+}
+
+fn parse_term(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut factor = parse_factor(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::Mul | Token::Div => {
+                iterator.next(); // eat * or /
+                let op = if next == Token::Mul {
+                    BinaryOp::Mul
+                } else {
+                    BinaryOp::Div
+                };
+                factor = Expression::Binary {
+                    op,
+                    l_expr: Box::new(factor),
+                    r_expr: Box::new(parse_factor(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    factor
+}
+
+fn parse_factor(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    match iterator.next() {
+        Some(token) => match token {
+            Token::Integer(i) => Expression::Const(i),
+            Token::Negation => Expression::Unary {
+                op: UnaryOp::Negation,
+                expr: Box::new(parse_factor(iterator)),
+            },
+            Token::BitComplement => Expression::Unary {
+                op: UnaryOp::BitwiseComplement,
+                expr: Box::new(parse_factor(iterator)),
+            },
+            Token::LogicalNegation => Expression::Unary {
+                op: UnaryOp::LogicalNegation,
+                expr: Box::new(parse_factor(iterator)),
+            },
+            Token::ParenOpen => {
+                let expr = parse_expression(iterator);
+                expect(iterator, Token::ParenClose);
+                expr
+            }
+            t => panic!("expected expression, got {:?}", t),
         },
-        Token::BitComplement => Expression::Unary {
-            op: UnaryOp::BitwiseComplement,
-            expr: Box::new(parse_expression(iterator)),
-        },
-        Token::LogicalNegation => Expression::Unary {
-            op: UnaryOp::LogicalNegation,
-            expr: Box::new(parse_expression(iterator)),
-        },
-        t => panic!("expected expression, got {:?}", t),
+        None => panic!("unexpected EOF"),
     }
 }
 
