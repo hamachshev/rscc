@@ -2,9 +2,9 @@
 
 padding_dots=$(printf '%0.1s' "."{1..60})
 padlength=50
-cmp=$1
 success_total=0
 failure_total=0
+build_dir="../build"
 
 print_test_name () {
     test_name=$1
@@ -27,7 +27,7 @@ test_not_implemented () {
 }
 
 run_our_program () {
-    actual_out=`./$1 2>/dev/null`
+    actual_out=$(arch -x86_64 "$build_dir/$1" 2>/dev/null)
     actual_exit_code=$?
     rm $1 2>/dev/null
 }
@@ -63,8 +63,18 @@ test_stage () {
         test_name="${base##*valid/}"
 
         print_test_name $test_name
-        $cmp $prog 2>/dev/null
+
+	asm="${test_name}.s"
+	bin="${test_name}.out"
+
+        ../target/debug/rscc $prog -o "$build_dir/$asm" >/dev/null 
         status=$?
+
+
+	arch -x86_64 clang -x assembler "$build_dir/$asm" -o "$build_dir/$bin"
+	rm "$build_dir/$asm" 2>/dev/null
+	chmod +x "$build_dir/$bin"
+
 
         if [[ $test_name == "skip_on_failure"* ]]; then
             # this may depend on features we haven't implemented yet
@@ -72,13 +82,13 @@ test_stage () {
             # otherwise don't count it as success or failure
             if [[ -f $base ]] && [[ $status -eq 0 ]]; then
                 # it succeeded, so run it and make sure it gives the right result
-                run_our_program $base
+                run_our_program $bin
                 compare_program_results
             else
                 test_not_implemented
             fi
         else
-            run_our_program $base
+            run_our_program $bin
             compare_program_results
         fi
     done
@@ -97,7 +107,7 @@ test_stage () {
         print_test_name $test_name
 
         # check output/exit codes
-        run_our_program $test_name
+        run_our_program $bin
         compare_program_results
 
     done
@@ -107,17 +117,20 @@ test_stage () {
         base="${prog%.*}" #name of executable (filename w/out extension)
         test_name="${base##*invalid/}"
 
-        $cmp $prog >/dev/null 2>&1
+	asm="${test_name}.s"
+	bin="${test_name}.out"
+
+        ../target/debug/rscc $prog -o "$build_dir/$asm" >/dev/null 2>&1
+
         status=$? #failed, as we expect, if exit code != 0
         print_test_name $test_name
 
         # make sure neither executable nor assembly was produced
         # and exit code is non-zero
-        if [[ -f $base || -f $base".s" ]]
+        if [[ 0 -eq $status ]]
         then
             test_failure
-            rm $base 2>/dev/null
-            rm $base".s" 2>/dev/null
+            # rm $base".s" 2>/dev/null
         else
             test_success
         fi
@@ -133,16 +146,22 @@ total_summary () {
     printf "%d successes, %d failures\n" $success_total $failure_total
 }
 
+
+cd "./write_a_c_compiler-master"
+pwd
+
 if [ "$1" == "" ]; then
-    echo "USAGE: ./test_compiler.sh /path/to/compiler [stages(optional)]"
-    echo "EXAMPLE(test specific stages): ./test_compiler.sh ./mycompiler 1 2 4"
-    echo "EXAMPLE(test all): ./test_compiler.sh ./mycompiler"
+    echo "USAGE: ./test_compiler.sh [stages(optional)]"
+    echo "EXAMPLE(test specific stages): ./test_compiler.sh 1 2 4"
+    echo "EXAMPLE(test all): ./test_compiler.sh"
     exit 1
 fi
 
-if test 1 -lt $#; then
+cargo build >/dev/null 2>&1
+
+if test 0 -lt $#; then
    testcases=("$@") # [1..-1] is testcases
-   for i in `seq 2 $#`; do
+   for i in `seq 1 $#`; do
        test_stage ${testcases[$i-1]}
    done
    total_summary
