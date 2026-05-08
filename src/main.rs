@@ -1,19 +1,25 @@
+use clap::Parser;
 use rscc::{codegen, lexer, parser};
-use std::{env::args, ffi::OsString, fs::DirBuilder, os::unix::ffi::OsStrExt, path::PathBuf};
+use std::{
+    ffi::OsString,
+    fs::DirBuilder,
+    io::{self, Write},
+    os::unix::ffi::OsStrExt,
+    path::{Path, PathBuf},
+};
 
 #[allow(unused)]
 fn main() {
-    let mut args = args();
-    let mut path: PathBuf = args.nth(1).expect("Must input a c file to compile").into();
-    let output_filename = match args.next() {
-        Some(arg) if arg == "-o" => Some(args.next().expect("Expected filename after -o")),
-        Some(_) => panic!("Unexpected argument. Usage <input.c> [-o output]"),
-        None => None,
-    };
+    let args = Args::parse();
+    let mut path: PathBuf = args.file;
+    let output_filename = args.output_filename;
+    let output_to_std_out = args.output_to_sdout == Some('-');
+
     let file = std::fs::File::open(&path).unwrap();
     let lex = lexer::lex(file).unwrap();
     let parse = parser::parse_program(&mut lex.into_iter().peekable());
     let codegen = codegen::gen_program(parse);
+
     let output_filename = match output_filename {
         Some(n) => OsString::from(n),
         None => {
@@ -30,11 +36,17 @@ fn main() {
         }
     };
     let output_filename_string = String::from_utf8_lossy(output_filename.as_bytes());
-    std::fs::write(&output_filename, codegen).expect(&format!(
-        "couldnt write to file {}",
-        &output_filename_string
-    ));
-    println!("compiled to {}", output_filename_string)
+    if output_to_std_out {
+        io::stdout()
+            .write_all(codegen.as_bytes())
+            .expect("couldnt write to stdout");
+    } else {
+        std::fs::write(&output_filename, codegen).expect(&format!(
+            "couldnt write to file {}",
+            &output_filename_string
+        ));
+        println!("compiled to {}", output_filename_string);
+    }
 }
 
 #[cfg(test)]
@@ -57,4 +69,17 @@ mod test {
             println!("{}", &res.status);
         }
     }
+}
+
+///rscc - c compiler written in rust
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    file: PathBuf,
+    /// output file path. default is <path-of-c-file>.s
+    #[arg(short)]
+    output_filename: Option<PathBuf>,
+
+    /// Output to stdout instead of file
+    output_to_sdout: Option<char>,
 }
