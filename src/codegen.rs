@@ -111,6 +111,26 @@ impl CodeGen {
                         });
                         asm
                     }
+                    BinaryOp::Modulo => {
+                        format!(
+                            "{rhs}\tpush \t%rax\n{lhs}\tcdq\n\tpop \t%rcx\n\tidiv \t%ecx\n\tmovl \t%edx, %eax\n"
+                        )
+                    }
+                    BinaryOp::BitwiseShiftLeft => {
+                        format!("{rhs}\tpush \t%rax\n{lhs}\tpop \t%rcx\n\tsal \t%cl, %eax\n")
+                    }
+                    BinaryOp::BitwiseShiftRight => {
+                        format!("{rhs}\tpush \t%rax\n{lhs}\tpop \t%rcx\n\tshr \t%cl, %eax\n")
+                    }
+                    BinaryOp::BitwiseAnd => {
+                        format!("{rhs}\tpush \t%rax\n{lhs}\tpop \t%rcx\n\tand \t%ecx, %eax\n")
+                    }
+                    BinaryOp::BitwiseOr => {
+                        format!("{rhs}\tpush \t%rax\n{lhs}\tpop \t%rcx\n\tor \t%ecx, %eax\n")
+                    }
+                    BinaryOp::BitwiseXor => {
+                        format!("{rhs}\tpush \t%rax\n{lhs}\tpop \t%rcx\n\txor \t%ecx, %eax\n")
+                    }
                 }
             }
         }

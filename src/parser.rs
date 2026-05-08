@@ -93,6 +93,12 @@ pub enum BinaryOp {
     LTE,
     GT,
     GTE,
+    Modulo,
+    BitwiseShiftLeft,
+    BitwiseShiftRight,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
 }
 impl Display for BinaryOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -109,6 +115,12 @@ impl Display for BinaryOp {
             BinaryOp::LTE => write!(f, "<="),
             BinaryOp::GT => write!(f, ">"),
             BinaryOp::GTE => write!(f, ">="),
+            BinaryOp::Modulo => write!(f, "%"),
+            BinaryOp::BitwiseShiftLeft => write!(f, "<<"),
+            BinaryOp::BitwiseShiftRight => write!(f, ">>"),
+            BinaryOp::BitwiseAnd => write!(f, "&"),
+            BinaryOp::BitwiseOr => write!(f, "|"),
+            BinaryOp::BitwiseXor => write!(f, "^"),
         }
     }
 }
@@ -174,10 +186,14 @@ fn parse_statement(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Stat
 
 // <exp> ::= <and-exp> { "||" <and-exp> }
 // <and-exp> ::= <equality-exp> { "&&" <equality-exp> }
+// <biwise-or-exp> ::= <bitwise-xor-expr> { "|" <bitwise-xor-expr> }
+// <bitwise-xor-expr> ::= <bitwise-and-exp> { "^" <bitwise-and-exp> }
+// <bitwise-and-expr>::= <equality-exp> { "&" <equality-exp> }
 // <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
-// <relational-exp> ::= <additive-exp> { ("<" | ">" | "<=" | ">=") <additive-exp> }
+// <relational-exp> ::= <bitwise-shift-exp> { ("<" | ">" | "<=" | ">=") <bitwise-shift-exp> }
+// <bitwise-shift-exp> ::= <additive-exp> { ("<<" | ">>" <additive-exp>)}
 // <additive-exp> ::= <term> { ("+" | "-") <term> }
-// <term> ::= <factor> { ("*" | "/") <factor> }
+// <term> ::= <factor> { ("*" | "/" | "%") <factor> }
 // <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int>
 // <unary_op> ::= "!" | "~" | "-"
 
@@ -200,13 +216,64 @@ fn parse_expression(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Exp
 }
 
 fn parse_logical_and(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut equality_expression = parse_equality(iterator);
+    let mut bitwise_or_expr = parse_bitwise_or(iterator);
     while let Some(next) = iterator.peek().cloned() {
         match next {
             Token::And => {
                 iterator.next(); // eat &&
-                equality_expression = Expression::Binary {
+                bitwise_or_expr = Expression::Binary {
                     op: BinaryOp::And,
+                    l_expr: Box::new(bitwise_or_expr),
+                    r_expr: Box::new(parse_bitwise_or(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    bitwise_or_expr
+}
+fn parse_bitwise_or(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut bitwise_xor_expr = parse_bitwise_xor(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::BitwiseOr => {
+                iterator.next(); // eat &&
+                bitwise_xor_expr = Expression::Binary {
+                    op: BinaryOp::BitwiseOr,
+                    l_expr: Box::new(bitwise_xor_expr),
+                    r_expr: Box::new(parse_bitwise_xor(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    bitwise_xor_expr
+}
+fn parse_bitwise_xor(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut bitwise_and_expr = parse_bitwise_and(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::BitwiseXor => {
+                iterator.next(); // eat &&
+                bitwise_and_expr = Expression::Binary {
+                    op: BinaryOp::BitwiseXor,
+                    l_expr: Box::new(bitwise_and_expr),
+                    r_expr: Box::new(parse_bitwise_and(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    bitwise_and_expr
+}
+fn parse_bitwise_and(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut equality_expression = parse_equality(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::BitwiseAnd => {
+                iterator.next(); // eat &&
+                equality_expression = Expression::Binary {
+                    op: BinaryOp::BitwiseAnd,
                     l_expr: Box::new(equality_expression),
                     r_expr: Box::new(parse_equality(iterator)),
                 }
@@ -243,7 +310,7 @@ fn parse_equality(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expre
 
 // < > <= >=
 fn parse_relational(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut factor = parse_term(iterator);
+    let mut bitwise_shift_expr = parse_bitwise_shift(iterator);
     while let Some(next) = iterator.peek().cloned() {
         match next {
             Token::LT | Token::LTE | Token::GT | Token::GTE => {
@@ -255,23 +322,46 @@ fn parse_relational(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Exp
                     Token::GTE => BinaryOp::GTE,
                     _ => panic!("unreachable"),
                 };
-                factor = Expression::Binary {
+                bitwise_shift_expr = Expression::Binary {
                     op,
-                    l_expr: Box::new(factor),
+                    l_expr: Box::new(bitwise_shift_expr),
+                    r_expr: Box::new(parse_bitwise_shift(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    bitwise_shift_expr
+}
+
+fn parse_bitwise_shift(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut term = parse_term(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::BitwiseShiftLeft | Token::BitwiseShiftRight => {
+                iterator.next(); // eat << or >>
+                let op = if next == Token::BitwiseShiftLeft {
+                    BinaryOp::BitwiseShiftLeft
+                } else {
+                    BinaryOp::BitwiseShiftRight
+                };
+                term = Expression::Binary {
+                    op,
+                    l_expr: Box::new(term),
                     r_expr: Box::new(parse_term(iterator)),
                 }
             }
             _ => break,
         }
     }
-    factor
+    term
 }
 fn parse_term(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
     let mut factor = parse_factor(iterator);
     while let Some(next) = iterator.peek().cloned() {
         match next {
             Token::Add | Token::Negation => {
-                iterator.next(); // eat * or /
+                iterator.next(); // eat + or -
                 let op = if next == Token::Add {
                     BinaryOp::Add
                 } else {
@@ -293,12 +383,13 @@ fn parse_factor(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Express
     let mut factor = parse_unary(iterator);
     while let Some(next) = iterator.peek().cloned() {
         match next {
-            Token::Mul | Token::Div => {
-                iterator.next(); // eat + or -
-                let op = if next == Token::Mul {
-                    BinaryOp::Mul
-                } else {
-                    BinaryOp::Div
+            Token::Mul | Token::Div | Token::Modulo => {
+                iterator.next(); // eat * or /
+                let op = match next {
+                    Token::Mul => BinaryOp::Mul,
+                    Token::Div => BinaryOp::Div,
+                    Token::Modulo => BinaryOp::Modulo,
+                    _ => panic!("should never happen"),
                 };
                 factor = Expression::Binary {
                     op,

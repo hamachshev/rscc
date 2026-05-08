@@ -33,19 +33,21 @@ pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
             b'+' => Token::Add,
             b'*' => Token::Mul,
             b'/' => Token::Div,
+            b'%' => Token::Modulo,
+            b'^' => Token::BitwiseXor,
             b'&' => match iterator.peek() {
                 Some(Ok(b'&')) => {
                     iterator.next();
                     Token::And
                 }
-                _ => todo!(),
+                _ => Token::BitwiseAnd,
             },
             b'|' => match iterator.peek() {
                 Some(Ok(b'|')) => {
                     iterator.next();
                     Token::Or
                 }
-                _ => todo!(),
+                _ => Token::BitwiseOr,
             },
 
             b'=' => match iterator.peek() {
@@ -67,12 +69,20 @@ pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
                     iterator.next();
                     Token::LTE
                 }
+                Some(Ok(b'<')) => {
+                    iterator.next();
+                    Token::BitwiseShiftLeft
+                }
                 _ => Token::LT,
             },
             b'>' => match iterator.peek() {
                 Some(Ok(b'=')) => {
                     iterator.next();
                     Token::GTE
+                }
+                Some(Ok(b'>')) => {
+                    iterator.next();
+                    Token::BitwiseShiftRight
                 }
                 _ => Token::GT,
             },
@@ -111,6 +121,12 @@ pub enum Token {
     LTE,
     GT,
     GTE,
+    Modulo,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
+    BitwiseShiftLeft,
+    BitwiseShiftRight,
 }
 
 fn is_num(byte: u8) -> bool {
