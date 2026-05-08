@@ -3,6 +3,9 @@ use std::{
     iter::Peekable,
 };
 
+pub mod types;
+use types::Token;
+
 #[allow(unused)]
 pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
     let mut tokens = Vec::new();
@@ -93,40 +96,6 @@ pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
         tokens.push(token);
     }
     Ok(tokens)
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Token {
-    CurlyBraceOpen,
-    CurlyBraceClose,
-    ParenOpen,
-    ParenClose,
-    SemiColon,
-    Return,
-    Int,
-    Ident(String),
-    Integer(usize),
-    Unknown(String),
-    Negation,
-    BitComplement,
-    LogicalNegation,
-    Add,
-    Mul,
-    Div,
-    And,
-    Or,
-    Equal,
-    NotEqual,
-    LT,
-    LTE,
-    GT,
-    GTE,
-    Modulo,
-    BitwiseAnd,
-    BitwiseOr,
-    BitwiseXor,
-    BitwiseShiftLeft,
-    BitwiseShiftRight,
 }
 
 fn is_num(byte: u8) -> bool {

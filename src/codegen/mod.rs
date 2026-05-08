@@ -2,7 +2,7 @@
 
 use std::fmt::format;
 
-use crate::parser::{self, BinaryOp, Expression, Function, Program, Statement};
+use crate::parser::types::{BinaryOp, Expression, Function, Program, Statement, UnaryOp};
 
 struct CodeGen {
     label_counter: u32,
@@ -38,15 +38,15 @@ impl CodeGen {
         match expr {
             Expression::Const(i) => format!("\tmovl \t${}, %eax\n", i),
             Expression::Unary { op, expr } => match op {
-                parser::UnaryOp::Negation => {
+                UnaryOp::Negation => {
                     let operand = self.gen_expression(expr);
                     format!("{operand}\tneg \t%eax\n")
                 }
-                parser::UnaryOp::LogicalNegation => {
+                UnaryOp::LogicalNegation => {
                     let operand = self.gen_expression(expr);
                     format!("{operand}\tcmpl\t$0, %eax\n\tmovl\t$0, %eax\n\tsete\t%al\n")
                 }
-                parser::UnaryOp::BitwiseComplement => {
+                UnaryOp::BitwiseComplement => {
                     let operand = self.gen_expression(expr);
                     format!("{operand}\tnot \t%eax\n")
                 }
