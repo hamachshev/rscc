@@ -9,8 +9,18 @@ pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
     let mut iterator = source.bytes().peekable();
 
     while let Some(Ok(byte)) = iterator.next() {
+        //skip whitespace
         if byte == b' ' || byte == b'\t' || byte == b'\n' {
             continue;
+        }
+        //skip comments
+        if byte == b'/' {
+            if let Some(Ok(b'/')) = iterator.peek() {
+                while let Some(Ok(byte)) = iterator.next()
+                    && byte != b'\n'
+                {}
+                continue;
+            }
         }
         let token = match byte {
             b'{' => Token::CurlyBraceOpen,
