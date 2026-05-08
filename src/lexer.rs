@@ -19,11 +19,53 @@ pub fn lex(source: impl Read) -> Result<Vec<Token>, io::Error> {
             b')' => Token::ParenClose,
             b';' => Token::SemiColon,
             b'-' => Token::Negation,
-            b'!' => Token::LogicalNegation,
             b'~' => Token::BitComplement,
             b'+' => Token::Add,
             b'*' => Token::Mul,
             b'/' => Token::Div,
+            b'&' => match iterator.peek() {
+                Some(Ok(b'&')) => {
+                    iterator.next();
+                    Token::And
+                }
+                _ => todo!(),
+            },
+            b'|' => match iterator.peek() {
+                Some(Ok(b'|')) => {
+                    iterator.next();
+                    Token::Or
+                }
+                _ => todo!(),
+            },
+
+            b'=' => match iterator.peek() {
+                Some(Ok(b'=')) => {
+                    iterator.next();
+                    Token::Equal
+                }
+                _ => todo!(),
+            },
+            b'!' => match iterator.peek() {
+                Some(Ok(b'=')) => {
+                    iterator.next();
+                    Token::NotEqual
+                }
+                _ => Token::LogicalNegation,
+            },
+            b'<' => match iterator.peek() {
+                Some(Ok(b'=')) => {
+                    iterator.next();
+                    Token::LTE
+                }
+                _ => Token::LT,
+            },
+            b'>' => match iterator.peek() {
+                Some(Ok(b'=')) => {
+                    iterator.next();
+                    Token::GTE
+                }
+                _ => Token::GT,
+            },
             n if is_num(n) => lex_num(n, &mut iterator),
             a if is_alpha(a) => lex_alpha(a, &mut iterator),
             u => Token::Unknown(String::from_utf8_lossy(&[u]).to_string()),
@@ -51,6 +93,14 @@ pub enum Token {
     Add,
     Mul,
     Div,
+    And,
+    Or,
+    Equal,
+    NotEqual,
+    LT,
+    LTE,
+    GT,
+    GTE,
 }
 
 fn is_num(byte: u8) -> bool {

@@ -85,6 +85,14 @@ pub enum BinaryOp {
     Mul,
     Div,
     Sub,
+    And,
+    Or,
+    Equal,
+    NotEqual,
+    LT,
+    LTE,
+    GT,
+    GTE,
 }
 impl Display for BinaryOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -93,6 +101,14 @@ impl Display for BinaryOp {
             BinaryOp::Mul => write!(f, "*"),
             BinaryOp::Div => write!(f, "/"),
             BinaryOp::Sub => write!(f, "-"),
+            BinaryOp::And => write!(f, "&&"),
+            BinaryOp::Or => write!(f, "||"),
+            BinaryOp::Equal => write!(f, "=="),
+            BinaryOp::NotEqual => write!(f, "!="),
+            BinaryOp::LT => write!(f, "<"),
+            BinaryOp::LTE => write!(f, "<="),
+            BinaryOp::GT => write!(f, ">"),
+            BinaryOp::GTE => write!(f, ">="),
         }
     }
 }
@@ -156,43 +172,110 @@ fn parse_statement(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Stat
     }
 }
 
-// <exp> ::= <term> { ("+" | "-") <term> }
+// <exp> ::= <and-exp> { "||" <and-exp> }
+// <and-exp> ::= <equality-exp> { "&&" <equality-exp> }
+// <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
+// <relational-exp> ::= <additive-exp> { ("<" | ">" | "<=" | ">=") <additive-exp> }
+// <additive-exp> ::= <term> { ("+" | "-") <term> }
 // <term> ::= <factor> { ("*" | "/") <factor> }
 // <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int>
+// <unary_op> ::= "!" | "~" | "-"
 
 fn parse_expression(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut term = parse_term(iterator);
+    let mut and_exrp = parse_logical_and(iterator);
     while let Some(next) = iterator.peek().cloned() {
         match next {
-            Token::Add | Token::Negation => {
-                iterator.next(); // eat +/-
-                let op = if next == Token::Add {
-                    BinaryOp::Add
+            Token::Or => {
+                iterator.next(); // eat ||
+                and_exrp = Expression::Binary {
+                    op: BinaryOp::Or,
+                    l_expr: Box::new(and_exrp),
+                    r_expr: Box::new(parse_logical_and(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    and_exrp
+}
+
+fn parse_logical_and(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut equality_expression = parse_equality(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::And => {
+                iterator.next(); // eat &&
+                equality_expression = Expression::Binary {
+                    op: BinaryOp::And,
+                    l_expr: Box::new(equality_expression),
+                    r_expr: Box::new(parse_equality(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    equality_expression
+}
+
+// == !=
+fn parse_equality(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut relational = parse_relational(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::Equal | Token::NotEqual => {
+                iterator.next(); // eat == or !=
+                let op = if next == Token::Equal {
+                    BinaryOp::Equal
                 } else {
-                    BinaryOp::Sub
+                    BinaryOp::NotEqual
                 };
-                term = Expression::Binary {
+                relational = Expression::Binary {
                     op,
-                    l_expr: Box::new(term),
+                    l_expr: Box::new(relational),
+                    r_expr: Box::new(parse_relational(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    relational
+}
+
+// < > <= >=
+fn parse_relational(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut factor = parse_term(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::LT | Token::LTE | Token::GT | Token::GTE => {
+                iterator.next(); // eat < > <= >=
+                let op = match next {
+                    Token::LT => BinaryOp::LT,
+                    Token::LTE => BinaryOp::LTE,
+                    Token::GT => BinaryOp::GT,
+                    Token::GTE => BinaryOp::GTE,
+                    _ => panic!("unreachable"),
+                };
+                factor = Expression::Binary {
+                    op,
+                    l_expr: Box::new(factor),
                     r_expr: Box::new(parse_term(iterator)),
                 }
             }
             _ => break,
         }
     }
-    term
+    factor
 }
-
 fn parse_term(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
     let mut factor = parse_factor(iterator);
     while let Some(next) = iterator.peek().cloned() {
         match next {
-            Token::Mul | Token::Div => {
+            Token::Add | Token::Negation => {
                 iterator.next(); // eat * or /
-                let op = if next == Token::Mul {
-                    BinaryOp::Mul
+                let op = if next == Token::Add {
+                    BinaryOp::Add
                 } else {
-                    BinaryOp::Div
+                    BinaryOp::Sub
                 };
                 factor = Expression::Binary {
                     op,
@@ -207,6 +290,29 @@ fn parse_term(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expressio
 }
 
 fn parse_factor(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    let mut factor = parse_unary(iterator);
+    while let Some(next) = iterator.peek().cloned() {
+        match next {
+            Token::Mul | Token::Div => {
+                iterator.next(); // eat + or -
+                let op = if next == Token::Mul {
+                    BinaryOp::Mul
+                } else {
+                    BinaryOp::Div
+                };
+                factor = Expression::Binary {
+                    op,
+                    l_expr: Box::new(factor),
+                    r_expr: Box::new(parse_unary(iterator)),
+                }
+            }
+            _ => break,
+        }
+    }
+    factor
+}
+
+fn parse_unary(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
     match iterator.next() {
         Some(token) => match token {
             Token::Integer(i) => Expression::Const(i),

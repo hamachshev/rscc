@@ -15,7 +15,7 @@ fn main() {
     let parse = parser::parse_program(&mut lex.into_iter().peekable());
     let codegen = codegen::gen_program(parse);
     let output_filename = match output_filename {
-        Some(n) => OsString::from(path),
+        Some(n) => OsString::from(n),
         None => {
             let c_path = path;
             let mut path = PathBuf::from("build/");
