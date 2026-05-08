@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-./write_a_c_compiler-master/test_compiler.sh $1
+./write_a_c_compiler-master/test_compiler.sh "$@"
