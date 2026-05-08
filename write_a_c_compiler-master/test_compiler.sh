@@ -29,7 +29,7 @@ test_not_implemented () {
 run_our_program () {
     actual_out=$(arch -x86_64 "$build_dir/$1" 2>/dev/null)
     actual_exit_code=$?
-    rm $1 2>/dev/null
+    rm "$build_dir/$1" 2>/dev/null
 }
 
 run_correct_program () {
