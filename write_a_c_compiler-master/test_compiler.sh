@@ -157,7 +157,7 @@ if [ "$1" == "" ]; then
     exit 1
 fi
 
-cargo build >/dev/null 2>&1
+cargo build >/dev/null
 
 if test 0 -lt $#; then
    testcases=("$@") # [1..-1] is testcases

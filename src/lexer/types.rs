@@ -1,5 +1,11 @@
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Token {
+pub enum TokenKind {
     CurlyBraceOpen,
     CurlyBraceClose,
     ParenOpen,
@@ -30,4 +36,17 @@ pub enum Token {
     BitwiseXor,
     BitwiseShiftLeft,
     BitwiseShiftRight,
+    Assign,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+    pub line: usize,
+}
+
+pub struct Lexer {
+    pub line: usize,
+    pub offset: usize,
 }

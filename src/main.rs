@@ -1,11 +1,15 @@
 use clap::Parser;
-use rscc::{codegen, lexer, parser};
+use rscc::codegen::CodeGen;
+use rscc::{
+    lexer::{self, Lexer},
+    parser,
+};
 use std::{
     ffi::OsString,
     fs::DirBuilder,
-    io::{self, Write},
+    io::{self, Read, Write},
     os::unix::ffi::OsStrExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 #[allow(unused)]
@@ -14,11 +18,25 @@ fn main() {
     let mut path: PathBuf = args.file;
     let output_filename = args.output_filename;
     let output_to_std_out = args.output_to_sdout == Some('-');
+    let output_ast = args.output_ast.unwrap_or(false);
+    let output_tokens = args.output_tokens.unwrap_or(false);
 
-    let file = std::fs::File::open(&path).unwrap();
-    let lex = lexer::lex(file).unwrap();
-    let parse = parser::parse_program(&mut lex.into_iter().peekable());
-    let codegen = codegen::gen_program(parse);
+    let mut file = Vec::new();
+    std::fs::File::open(&path).unwrap().read_to_end(&mut file);
+
+    let lex = Lexer::new().lex(&file[..]).unwrap();
+
+    if output_tokens {
+        println!("{:#?}", lex);
+        return;
+    }
+    let parse = parser::Parser::new(&file[..]).parse_program(&mut lex.into_iter().peekable());
+
+    if output_ast {
+        println!("{:#?}", parse);
+        return;
+    }
+    let codegen = CodeGen::new().gen_program(parse);
 
     let output_filename = match output_filename {
         Some(n) => OsString::from(n),
@@ -79,6 +97,14 @@ struct Args {
     /// output file path. default is <path-of-c-file>.s
     #[arg(short)]
     output_filename: Option<PathBuf>,
+
+    ///output ast
+    #[arg(short = 'a')]
+    output_ast: Option<bool>,
+
+    ///output tokens
+    #[arg(short = 't')]
+    output_tokens: Option<bool>,
 
     /// Output to stdout instead of file
     output_to_sdout: Option<char>,

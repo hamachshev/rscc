@@ -1,297 +1,488 @@
 #![allow(unused)]
 
-use crate::lexer::types::Token;
-use std::{fmt::Display, iter::Peekable};
-
-pub mod types;
+use crate::lexer::types::{Token, TokenKind};
+use std::{
+    cmp,
+    fmt::{Debug, Display},
+    iter::Peekable,
+    os, process,
+};
 use types::{BinaryOp, Expression, Function, Program, Statement, Statements, UnaryOp};
 
-pub fn parse_program(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Program {
-    Program(parse_function(iterator))
-}
-fn parse_function(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Function {
-    let return_type = match get_token(iterator) {
-        Token::Int => "",
-        e => panic!("missing return type"),
-    };
-    let ident = match get_token(iterator) {
-        Token::Ident(ident) => ident,
-        e => panic!("expected ident, got {:?}", e),
-    };
-    expect(iterator, Token::ParenOpen);
-    expect(iterator, Token::ParenClose);
-    expect(iterator, Token::CurlyBraceOpen);
-    let mut statements = Vec::new();
-    statements.push(parse_statement(iterator));
-    expect(iterator, Token::CurlyBraceClose);
+pub mod types;
 
-    Function(ident, Statements(statements))
+pub struct Parser<'a> {
+    buf: &'a [u8],
 }
-fn parse_statement(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Statement {
-    match get_token(iterator) {
-        Token::Return => {
-            let expr = parse_expression(iterator);
-            expect(iterator, Token::SemiColon);
-            Statement::Return(expr)
-        }
-        e => panic!("unexpected token, {:?}", e),
+impl<'a> Parser<'a> {
+    pub fn new(buf: &'a [u8]) -> Parser<'a> {
+        Parser { buf }
     }
-}
+    pub fn parse_program(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Program {
+        Program(self.parse_function(iterator))
+    }
+    fn parse_function(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Function {
+        let return_type = match get_token(iterator) {
+            Token {
+                kind: TokenKind::Int,
+                span: _,
+            } => "",
+            e => self.print_error(e, "return type"),
+        };
+        let ident = match get_token(iterator) {
+            Token {
+                kind: TokenKind::Ident(ident),
+                span: _,
+            } => ident,
+            e => self.print_error(e, "ident"),
+        };
+        self.expect(iterator, TokenKind::ParenOpen);
+        self.expect(iterator, TokenKind::ParenClose);
+        self.expect(iterator, TokenKind::CurlyBraceOpen);
+        let mut statements = Vec::new();
+        loop {
+            match iterator.peek() {
+                Some(Token {
+                    kind: TokenKind::CurlyBraceClose,
+                    span: _,
+                }) => break,
+                Some(_) => statements.push(self.parse_statement(iterator)),
+                None => panic!("unexpected EOF"),
+            }
+        }
 
-// <exp> ::= <and-exp> { "||" <and-exp> }
-// <and-exp> ::= <equality-exp> { "&&" <equality-exp> }
-// <biwise-or-exp> ::= <bitwise-xor-expr> { "|" <bitwise-xor-expr> }
-// <bitwise-xor-expr> ::= <bitwise-and-exp> { "^" <bitwise-and-exp> }
-// <bitwise-and-expr>::= <equality-exp> { "&" <equality-exp> }
-// <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
-// <relational-exp> ::= <bitwise-shift-exp> { ("<" | ">" | "<=" | ">=") <bitwise-shift-exp> }
-// <bitwise-shift-exp> ::= <additive-exp> { ("<<" | ">>" <additive-exp>)}
-// <additive-exp> ::= <term> { ("+" | "-") <term> }
-// <term> ::= <factor> { ("*" | "/" | "%") <factor> }
-// <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int>
-// <unary_op> ::= "!" | "~" | "-"
+        Function(ident, Statements(statements))
+    }
+    fn parse_statement(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Statement {
+        let Token {
+            kind: token,
+            span: _,
+        } = get_peek(iterator);
+        match token {
+            TokenKind::Return => {
+                iterator.next(); //eat return
+                let expr = self.parse_expression(iterator);
+                self.expect(iterator, TokenKind::SemiColon);
+                Statement::Return(expr)
+            }
+            TokenKind::Int => {
+                iterator.next(); //eat int
+                let expr = self.parse_expression(iterator);
+                match expr {
+                    Expression::Assign { ident, expr } => {
+                        self.expect(iterator, TokenKind::SemiColon);
+                        Statement::Declare(*ident, Some(*expr))
+                    }
+                    Expression::Ident(_) => Statement::Declare(expr, None),
+                    e => panic!("Expected expression, got {:?}", e),
+                }
+            }
+            _ => {
+                let expr = self.parse_expression(iterator);
+                self.expect(iterator, TokenKind::SemiColon);
+                Statement::Expr(expr)
+            }
+        }
+    }
+    // <program> ::= <function>
+    // <function> ::= "int" <id> "(" ")" "{" { <statement> } "}"
+    // <statement> ::= "return" <exp> ";"
+    //               | <exp> ";"
+    //               | "int" <ident> [ = <exp>] ";"
+    // <exp> ::= <ident> "=" <exp> | <logical-or-exp>
+    // <logical_or_exp> ::= <and-exp> { "||" <and-exp> }
+    // <and-exp> ::= <equality-exp> { "&&" <equality-exp> }
+    // <biwise-or-exp> ::= <bitwise-xor-expr> { "|" <bitwise-xor-expr> }
+    // <bitwise-xor-expr> ::= <bitwise-and-exp> { "^" <bitwise-and-exp> }
+    //; <bitwise-and-expr>::= <equality-exp> { "&" <equality-exp> }
+    // <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
+    // <relational-exp> ::= <bitwise-shift-exp> { ("<" | ">" | "<=" | ">=") <bitwise-shift-exp> }
+    // <bitwise-shift-exp> ::= <additive-exp> { ("<<" | ">>" <additive-exp>)}
+    // <additive-exp> ::= <term> { ("+" | "-") <term> }
+    // <term> ::= <factor> { ("*" | "/" | "%") <factor> }
+    // <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int> | <ident>
+    // <unary_op> ::= "!" | "~" | "-"
 
-fn parse_expression(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut and_exrp = parse_logical_and(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::Or => {
-                iterator.next(); // eat ||
-                and_exrp = Expression::Binary {
-                    op: BinaryOp::Or,
-                    l_expr: Box::new(and_exrp),
-                    r_expr: Box::new(parse_logical_and(iterator)),
-                }
+    fn parse_expression(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+        match iterator.peek() {
+            Some(Token {
+                kind: TokenKind::Ident(_),
+                span: _,
+            }) => self.parse_assignment(iterator),
+            Some(_) => self.parse_logical_or(iterator),
+            None => {
+                panic!("unexpected EOF")
             }
-            _ => break,
         }
     }
-    and_exrp
-}
 
-fn parse_logical_and(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut bitwise_or_expr = parse_bitwise_or(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::And => {
-                iterator.next(); // eat &&
-                bitwise_or_expr = Expression::Binary {
-                    op: BinaryOp::And,
-                    l_expr: Box::new(bitwise_or_expr),
-                    r_expr: Box::new(parse_bitwise_or(iterator)),
-                }
-            }
-            _ => break,
-        }
-    }
-    bitwise_or_expr
-}
-fn parse_bitwise_or(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut bitwise_xor_expr = parse_bitwise_xor(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::BitwiseOr => {
-                iterator.next(); // eat &&
-                bitwise_xor_expr = Expression::Binary {
-                    op: BinaryOp::BitwiseOr,
-                    l_expr: Box::new(bitwise_xor_expr),
-                    r_expr: Box::new(parse_bitwise_xor(iterator)),
-                }
-            }
-            _ => break,
-        }
-    }
-    bitwise_xor_expr
-}
-fn parse_bitwise_xor(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut bitwise_and_expr = parse_bitwise_and(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::BitwiseXor => {
-                iterator.next(); // eat &&
-                bitwise_and_expr = Expression::Binary {
-                    op: BinaryOp::BitwiseXor,
-                    l_expr: Box::new(bitwise_and_expr),
-                    r_expr: Box::new(parse_bitwise_and(iterator)),
-                }
-            }
-            _ => break,
-        }
-    }
-    bitwise_and_expr
-}
-fn parse_bitwise_and(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut equality_expression = parse_equality(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::BitwiseAnd => {
-                iterator.next(); // eat &&
-                equality_expression = Expression::Binary {
-                    op: BinaryOp::BitwiseAnd,
-                    l_expr: Box::new(equality_expression),
-                    r_expr: Box::new(parse_equality(iterator)),
-                }
-            }
-            _ => break,
-        }
-    }
-    equality_expression
-}
+    fn parse_assignment(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+        let ident = self.parse_unary(iterator);
+        let Expression::Ident(_) = ident else {
+            panic!("expeceted ident, got {:?}", ident)
+        };
+        match iterator.peek() {
+            Some(Token {
+                kind: TokenKind::Assign,
+                span: _,
+            }) => {
+                self.expect(iterator, TokenKind::Assign);
+                let expr = self.parse_expression(iterator);
 
-// == !=
-fn parse_equality(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut relational = parse_relational(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::Equal | Token::NotEqual => {
-                iterator.next(); // eat == or !=
-                let op = if next == Token::Equal {
-                    BinaryOp::Equal
-                } else {
-                    BinaryOp::NotEqual
-                };
-                relational = Expression::Binary {
-                    op,
-                    l_expr: Box::new(relational),
-                    r_expr: Box::new(parse_relational(iterator)),
+                Expression::Assign {
+                    ident: Box::new(ident),
+                    expr: Box::new(expr),
                 }
             }
-            _ => break,
+            Some(_) => ident,
+            None => panic!("unexpected EOF"),
         }
     }
-    relational
-}
+    fn parse_logical_or(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+        let mut and_exrp = self.parse_logical_and(iterator);
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::Or => {
+                    iterator.next(); // eat ||
+                    and_exrp = Expression::Binary {
+                        op: BinaryOp::Or,
+                        l_expr: Box::new(and_exrp),
+                        r_expr: Box::new(self.parse_logical_and(iterator)),
+                    }
+                }
+                _ => break,
+            }
+        }
+        and_exrp
+    }
 
-// < > <= >=
-fn parse_relational(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut bitwise_shift_expr = parse_bitwise_shift(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::LT | Token::LTE | Token::GT | Token::GTE => {
-                iterator.next(); // eat < > <= >=
-                let op = match next {
-                    Token::LT => BinaryOp::LT,
-                    Token::LTE => BinaryOp::LTE,
-                    Token::GT => BinaryOp::GT,
-                    Token::GTE => BinaryOp::GTE,
-                    _ => panic!("unreachable"),
-                };
-                bitwise_shift_expr = Expression::Binary {
-                    op,
-                    l_expr: Box::new(bitwise_shift_expr),
-                    r_expr: Box::new(parse_bitwise_shift(iterator)),
+    fn parse_logical_and(
+        &self,
+        iterator: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Expression {
+        let mut bitwise_or_expr = self.parse_bitwise_or(iterator);
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::And => {
+                    iterator.next(); // eat &&
+                    bitwise_or_expr = Expression::Binary {
+                        op: BinaryOp::And,
+                        l_expr: Box::new(bitwise_or_expr),
+                        r_expr: Box::new(self.parse_bitwise_or(iterator)),
+                    }
                 }
+                _ => break,
             }
-            _ => break,
         }
+        bitwise_or_expr
     }
-    bitwise_shift_expr
-}
+    fn parse_bitwise_or(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+        let mut bitwise_xor_expr = self.parse_bitwise_xor(iterator);
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::BitwiseOr => {
+                    iterator.next(); // eat &&
+                    bitwise_xor_expr = Expression::Binary {
+                        op: BinaryOp::BitwiseOr,
+                        l_expr: Box::new(bitwise_xor_expr),
+                        r_expr: Box::new(self.parse_bitwise_xor(iterator)),
+                    }
+                }
+                _ => break,
+            }
+        }
+        bitwise_xor_expr
+    }
+    fn parse_bitwise_xor(
+        &self,
+        iterator: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Expression {
+        let mut bitwise_and_expr = self.parse_bitwise_and(iterator);
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::BitwiseXor => {
+                    iterator.next(); // eat &&
+                    bitwise_and_expr = Expression::Binary {
+                        op: BinaryOp::BitwiseXor,
+                        l_expr: Box::new(bitwise_and_expr),
+                        r_expr: Box::new(self.parse_bitwise_and(iterator)),
+                    }
+                }
+                _ => break,
+            }
+        }
+        bitwise_and_expr
+    }
+    fn parse_bitwise_and(
+        &self,
+        iterator: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Expression {
+        let mut equality_expression = self.parse_equality(iterator);
 
-fn parse_bitwise_shift(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut term = parse_term(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::BitwiseShiftLeft | Token::BitwiseShiftRight => {
-                iterator.next(); // eat << or >>
-                let op = if next == Token::BitwiseShiftLeft {
-                    BinaryOp::BitwiseShiftLeft
-                } else {
-                    BinaryOp::BitwiseShiftRight
-                };
-                term = Expression::Binary {
-                    op,
-                    l_expr: Box::new(term),
-                    r_expr: Box::new(parse_term(iterator)),
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::BitwiseAnd => {
+                    iterator.next(); // eat &&
+                    equality_expression = Expression::Binary {
+                        op: BinaryOp::BitwiseAnd,
+                        l_expr: Box::new(equality_expression),
+                        r_expr: Box::new(self.parse_equality(iterator)),
+                    }
                 }
+                _ => break,
             }
-            _ => break,
         }
+        equality_expression
     }
-    term
-}
-fn parse_term(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut factor = parse_factor(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::Add | Token::Negation => {
-                iterator.next(); // eat + or -
-                let op = if next == Token::Add {
-                    BinaryOp::Add
-                } else {
-                    BinaryOp::Sub
-                };
-                factor = Expression::Binary {
-                    op,
-                    l_expr: Box::new(factor),
-                    r_expr: Box::new(parse_factor(iterator)),
-                }
-            }
-            _ => break,
-        }
-    }
-    factor
-}
 
-fn parse_factor(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    let mut factor = parse_unary(iterator);
-    while let Some(next) = iterator.peek().cloned() {
-        match next {
-            Token::Mul | Token::Div | Token::Modulo => {
-                iterator.next(); // eat * or /
-                let op = match next {
-                    Token::Mul => BinaryOp::Mul,
-                    Token::Div => BinaryOp::Div,
-                    Token::Modulo => BinaryOp::Modulo,
-                    _ => panic!("should never happen"),
-                };
-                factor = Expression::Binary {
-                    op,
-                    l_expr: Box::new(factor),
-                    r_expr: Box::new(parse_unary(iterator)),
-                }
-            }
-            _ => break,
-        }
-    }
-    factor
-}
+    // == !=
+    fn parse_equality(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+        let mut relational = self.parse_relational(iterator);
 
-fn parse_unary(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-    match iterator.next() {
-        Some(token) => match token {
-            Token::Integer(i) => Expression::Const(i),
-            Token::Negation => Expression::Unary {
-                op: UnaryOp::Negation,
-                expr: Box::new(parse_factor(iterator)),
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::Equal | TokenKind::NotEqual => {
+                    iterator.next(); // eat == or !=
+                    let op = if next == TokenKind::Equal {
+                        BinaryOp::Equal
+                    } else {
+                        BinaryOp::NotEqual
+                    };
+                    relational = Expression::Binary {
+                        op,
+                        l_expr: Box::new(relational),
+                        r_expr: Box::new(self.parse_relational(iterator)),
+                    }
+                }
+                _ => break,
+            }
+        }
+        relational
+    }
+
+    // < > <= >=
+    fn parse_relational(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+        let mut bitwise_shift_expr = self.parse_bitwise_shift(iterator);
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::LT | TokenKind::LTE | TokenKind::GT | TokenKind::GTE => {
+                    iterator.next(); // eat < > <= >=
+
+                    let op = match next {
+                        TokenKind::LT => BinaryOp::LT,
+                        TokenKind::LTE => BinaryOp::LTE,
+                        TokenKind::GT => BinaryOp::GT,
+                        TokenKind::GTE => BinaryOp::GTE,
+                        _ => panic!("unreachable"),
+                    };
+                    bitwise_shift_expr = Expression::Binary {
+                        op,
+                        l_expr: Box::new(bitwise_shift_expr),
+                        r_expr: Box::new(self.parse_bitwise_shift(iterator)),
+                    }
+                }
+                _ => break,
+            }
+        }
+        bitwise_shift_expr
+    }
+
+    fn parse_bitwise_shift(
+        &self,
+        iterator: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Expression {
+        let mut term = self.parse_term(iterator);
+
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::BitwiseShiftLeft | TokenKind::BitwiseShiftRight => {
+                    iterator.next(); // eat << or >>
+                    let op = if next == TokenKind::BitwiseShiftLeft {
+                        BinaryOp::BitwiseShiftLeft
+                    } else {
+                        BinaryOp::BitwiseShiftRight
+                    };
+                    term = Expression::Binary {
+                        op,
+                        l_expr: Box::new(term),
+                        r_expr: Box::new(self.parse_term(iterator)),
+                    }
+                }
+                _ => break,
+            }
+        }
+        term
+    }
+    fn parse_term(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+        let mut factor = self.parse_factor(iterator);
+
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::Add | TokenKind::Negation => {
+                    iterator.next(); // eat + or -
+                    let op = if next == TokenKind::Add {
+                        BinaryOp::Add
+                    } else {
+                        BinaryOp::Sub
+                    };
+                    factor = Expression::Binary {
+                        op,
+                        l_expr: Box::new(factor),
+                        r_expr: Box::new(self.parse_factor(iterator)),
+                    }
+                }
+                _ => break,
+            }
+        }
+        factor
+    }
+
+    fn parse_factor(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+        let mut factor = self.parse_unary(iterator);
+        while let Some(Token {
+            kind: next,
+            span: _,
+        }) = iterator.peek().cloned()
+        {
+            match next {
+                TokenKind::Mul | TokenKind::Div | TokenKind::Modulo => {
+                    iterator.next(); // eat * or /
+                    let op = match next {
+                        TokenKind::Mul => BinaryOp::Mul,
+                        TokenKind::Div => BinaryOp::Div,
+                        TokenKind::Modulo => BinaryOp::Modulo,
+                        _ => panic!("should never happen"),
+                    };
+                    factor = Expression::Binary {
+                        op,
+                        l_expr: Box::new(factor),
+                        r_expr: Box::new(self.parse_unary(iterator)),
+                    }
+                }
+                _ => break,
+            }
+        }
+        factor
+    }
+
+    fn parse_unary(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+        match iterator.next() {
+            Some(token) => match token {
+                Token {
+                    kind: TokenKind::Ident(i),
+                    span: _,
+                } => Expression::Ident(i),
+                Token {
+                    kind: TokenKind::Integer(i),
+                    span: _,
+                } => Expression::Const(i),
+                Token {
+                    kind: TokenKind::Negation,
+                    span: _,
+                } => Expression::Unary {
+                    op: UnaryOp::Negation,
+                    expr: Box::new(self.parse_factor(iterator)),
+                },
+                Token {
+                    kind: TokenKind::BitComplement,
+                    span: _,
+                } => Expression::Unary {
+                    op: UnaryOp::BitwiseComplement,
+                    expr: Box::new(self.parse_factor(iterator)),
+                },
+                Token {
+                    kind: TokenKind::LogicalNegation,
+                    span: _,
+                } => Expression::Unary {
+                    op: UnaryOp::LogicalNegation,
+                    expr: Box::new(self.parse_factor(iterator)),
+                },
+                Token {
+                    kind: TokenKind::ParenOpen,
+                    span: _,
+                } => {
+                    let expr = self.parse_expression(iterator);
+                    self.expect(iterator, TokenKind::ParenClose);
+                    expr
+                }
+                t => self.print_error(t, "hello"),
             },
-            Token::BitComplement => Expression::Unary {
-                op: UnaryOp::BitwiseComplement,
-                expr: Box::new(parse_factor(iterator)),
-            },
-            Token::LogicalNegation => Expression::Unary {
-                op: UnaryOp::LogicalNegation,
-                expr: Box::new(parse_factor(iterator)),
-            },
-            Token::ParenOpen => {
-                let expr = parse_expression(iterator);
-                expect(iterator, Token::ParenClose);
-                expr
-            }
-            t => panic!("expected expression, got {:?}", t),
-        },
-        None => panic!("unexpected EOF"),
+            None => panic!("unexpected EOF"),
+        }
     }
-}
 
-fn expect(iterator: &mut impl Iterator<Item = Token>, expect: Token) {
-    match iterator.next() {
-        Some(token) if token == expect => {}
-        Some(token) => panic!("expected {:?}, got {:?}", expect, token),
-        None => panic!("unexpected EOF, expected {:?}", expect),
+    fn print_error(&self, token: Token, expected: &str) -> ! {
+        let start = cmp::max(token.span.start as isize - 5, 0);
+        let end = cmp::min(token.span.end + 5, self.buf.len());
+        eprintln!("{}ERROR{}\n", "-".repeat(10), "-".repeat(10));
+        let line_msg = format!("line {}: ", token.span.line + 1);
+        eprintln!(
+            "{}{}",
+            line_msg,
+            String::from_utf8_lossy(&self.buf[start as usize..end]).trim_end()
+        );
+
+        eprintln!(
+            "{}^{}expected: {}, got: {:?}",
+            " ".repeat(line_msg.len() + (token.span.start as isize - start) as usize),
+            "-".repeat(20),
+            expected,
+            token.kind
+        );
+        eprintln!("\n{}", "-".repeat(20 + "error".len()));
+        process::exit(1);
+    }
+    fn expect(&self, iterator: &mut impl Iterator<Item = Token>, expect: TokenKind) {
+        match iterator.next() {
+            Some(Token {
+                kind: token,
+                span: _,
+            }) if token == expect => {}
+            Some(token) => self.print_error(token, &format!("{:?}", expect)),
+            None => panic!("unexpected EOF, expected {:?}", expect),
+        }
     }
 }
 
 fn get_token(iterator: &mut impl Iterator<Item = Token>) -> Token {
     iterator.next().unwrap_or_else(|| panic!("unexpected EOF"))
+}
+fn get_peek(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> &Token {
+    iterator.peek().unwrap_or_else(|| panic!("unexpected EOF"))
 }

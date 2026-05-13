@@ -37,17 +37,32 @@ impl Display for Statements {
 #[derive(Debug)]
 pub enum Statement {
     Return(Expression),
+    Declare(Expression, Option<Expression>),
+    Expr(Expression),
 }
 impl Display for Statement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Statement::Return(expression) => write!(f, "RETURN Int <{}>", expression),
+            Statement::Return(expression) => writeln!(f, "RETURN Int <{}>", expression),
+            Statement::Declare(name, expression) => {
+                write!(f, "DECLARE {} = ", name)?;
+                match expression {
+                    Some(expr) => {
+                        writeln!(f, "{}", expr)
+                    }
+                    None => {
+                        writeln!(f, "")
+                    }
+                }
+            }
+            Statement::Expr(expression) => todo!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Expression {
+    Ident(String),
     Const(usize),
     Unary {
         op: UnaryOp,
@@ -58,8 +73,12 @@ pub enum Expression {
         l_expr: Box<Expression>,
         r_expr: Box<Expression>,
     },
+    Assign {
+        ident: Box<Expression>,
+        expr: Box<Expression>,
+    },
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
     Negation,
     LogicalNegation,
@@ -75,7 +94,7 @@ impl Display for UnaryOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
     Add,
     Mul,
@@ -138,6 +157,8 @@ impl Expression {
                 writeln!(f, "{indent}\tRHS:")?;
                 r_expr.fmt_tree(f, depth + 2)
             }
+            Expression::Ident(_) => todo!(),
+            Expression::Assign { ident, expr } => todo!(),
         }
     }
 }

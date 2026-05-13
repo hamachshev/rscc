@@ -1,36 +1,69 @@
 #![allow(unused)]
 
-use std::fmt::format;
+use std::{collections::HashMap, fmt::format, path::Path};
 
 use crate::parser::types::{BinaryOp, Expression, Function, Program, Statement, UnaryOp};
 
-struct CodeGen {
+pub struct CodeGen {
     label_counter: u32,
-}
-
-pub fn gen_program(code: Program) -> String {
-    CodeGen::new().gen_function(code.0)
+    var_map: HashMap<String, u32>,
+    ebp_offset: u32, //in bytes - we mult by 4 later
 }
 
 impl CodeGen {
-    fn new() -> CodeGen {
-        CodeGen { label_counter: 0 }
+    pub fn new() -> CodeGen {
+        CodeGen {
+            label_counter: 0,
+            var_map: HashMap::new(),
+            ebp_offset: 1,
+        }
+    }
+    pub fn gen_program(&mut self, code: Program) -> String {
+        self.gen_function(code.0)
     }
 
     fn gen_function(&mut self, Function(name, statements): Function) -> String {
-        let body: String = statements
-            .0
-            .into_iter()
-            .map(|x| self.gen_statement(x))
-            .collect();
-        format!("\t.globl _{name}\n_{name}:\n{body}\n")
+        let mut body: String = statements.0.iter().map(|x| self.gen_statement(x)).collect();
+        if let Some(Statement::Return(_)) = statements.0.get(statements.0.len() - 1) {
+            //ie there is a return, then do nothing
+        } else {
+            body.push_str(&format!("movl \t$0, %eax\n\tret\n"));
+        };
+        format!(
+            "\t.globl _{name}\n_{name}:\n\
+            \tpush \t%rbp\n\
+            \tmov  \t%rsp, %rbp\n\
+            {body}\n"
+        )
     }
 
-    fn gen_statement(&mut self, statement: Statement) -> String {
+    fn gen_statement(&mut self, statement: &Statement) -> String {
         match statement {
             Statement::Return(expr) => {
-                format!("{}\tret", self.gen_expression(&expr))
+                format!(
+                    "{}\
+                    \tmov \t%rbp, %rsp\n\
+                    \tpop \t%rbp\n\
+                    \tret",
+                    self.gen_expression(&expr)
+                )
             }
+            Statement::Declare(Expression::Ident(ident), expr) => {
+                if self.var_map.contains_key(ident) {
+                    panic!("cannot redeclare {ident}");
+                }
+
+                self.var_map.insert(ident.clone(), self.ebp_offset);
+                self.ebp_offset += 1;
+                if let Some(expr) = expr {
+                    let expr = self.gen_expression(&expr);
+                    format!("{expr}\tpush \t%rax\n")
+                } else {
+                    "".to_string()
+                }
+            }
+            Statement::Expr(expression) => self.gen_expression(&expression),
+            _ => panic!("unreadchable"),
         }
     }
 
@@ -132,6 +165,29 @@ impl CodeGen {
                         format!("{rhs}\tpush \t%rax\n{lhs}\tpop \t%rcx\n\txor \t%ecx, %eax\n")
                     }
                 }
+            }
+            Expression::Ident(ident) => {
+                let offset = *(self
+                    .var_map
+                    .get(ident)
+                    .expect(&format!("using {ident} before you declared it")))
+                    as i32
+                    * -4;
+                format!("movl \t{offset}(%ebp), %eax\n")
+            }
+            Expression::Assign { ident, expr } => {
+                let Expression::Ident(ident) = ident.as_ref() else {
+                    panic!("non ident expression for assign expression")
+                };
+                let offset = *(self
+                    .var_map
+                    .get(ident)
+                    .expect(&format!("must declare {} before assignment", ident)))
+                    as i32
+                    * -4;
+
+                let expr = self.gen_expression(expr);
+                format!("{expr}\n movl \t%eax, {offset}(%ebp)\n")
             }
         }
     }
