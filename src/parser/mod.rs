@@ -4,6 +4,7 @@ use crate::lexer::types::{Token, TokenKind};
 use std::{
     cmp,
     fmt::{Debug, Display},
+    io::{BufRead, BufReader},
     iter::Peekable,
     os, process,
 };
@@ -27,14 +28,14 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::Int,
                 span: _,
             } => "",
-            e => self.print_error(e, "return type"),
+            e => self.print_error(&e, "return type", ErrorPosition::Before),
         };
         let ident = match get_token(iterator) {
             Token {
                 kind: TokenKind::Ident(ident),
                 span: _,
             } => ident,
-            e => self.print_error(e, "ident"),
+            e => self.print_error(&e, "ident", ErrorPosition::Before),
         };
         self.expect(iterator, TokenKind::ParenOpen);
         self.expect(iterator, TokenKind::ParenClose);
@@ -441,26 +442,39 @@ impl<'a> Parser<'a> {
                     self.expect(iterator, TokenKind::ParenClose);
                     expr
                 }
-                t => self.print_error(t, "hello"),
+                t => self.print_error(&t, "ident or integer", ErrorPosition::Before),
             },
             None => panic!("unexpected EOF"),
         }
     }
 
-    fn print_error(&self, token: Token, expected: &str) -> ! {
-        let start = cmp::max(token.span.start as isize - 5, 0);
-        let end = cmp::min(token.span.end + 5, self.buf.len());
+    fn print_error(&self, token: &Token, expected: &str, position: ErrorPosition) -> ! {
+        let line = BufReader::new(self.buf)
+            .lines()
+            .flatten()
+            .nth(token.span.line)
+            .expect("couldnt get line for error message");
+
+        let mut offset = line
+            .find(&String::from_utf8_lossy(&self.buf[token.span.start..token.span.end]).to_string())
+            .expect("couldnt find token str in line");
+        let tabs = &line[..offset].chars().filter(|c| *c == '\t').count();
+
+        // offset += match position {
+        //     ErrorPosition::Before => 0,
+        //     ErrorPosition::After => token.span.end - token.span.start,
+        // };
+
         eprintln!("{}ERROR{}\n", "-".repeat(10), "-".repeat(10));
         let line_msg = format!("line {}: ", token.span.line + 1);
-        eprintln!(
-            "{}{}",
-            line_msg,
-            String::from_utf8_lossy(&self.buf[start as usize..end]).trim_end()
-        );
+        eprintln!("{}{}", line_msg, line);
 
         eprintln!(
-            "{}^{}expected: {}, got: {:?}",
-            " ".repeat(line_msg.len() + (token.span.start as isize - start) as usize),
+            "{}{}^{}expected: {}, got: {:?}",
+            "\t".repeat(*tabs),
+            " ".repeat(line_msg.len() + offset - 1), // -1 to put on the char not after, ie " " *
+            // len of line mesg and offset (where char is in str) and do one less space - we want ^
+            // on that char -- actually not always the case so not sure??
             "-".repeat(20),
             expected,
             token.kind
@@ -474,7 +488,9 @@ impl<'a> Parser<'a> {
                 kind: token,
                 span: _,
             }) if token == expect => {}
-            Some(token) => self.print_error(token, &format!("{:?}", expect)),
+            Some(token) => {
+                self.print_error(&token, &format!("{:?}", expect,), ErrorPosition::Before)
+            }
             None => panic!("unexpected EOF, expected {:?}", expect),
         }
     }
@@ -485,4 +501,9 @@ fn get_token(iterator: &mut impl Iterator<Item = Token>) -> Token {
 }
 fn get_peek(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> &Token {
     iterator.peek().unwrap_or_else(|| panic!("unexpected EOF"))
+}
+
+enum ErrorPosition {
+    Before,
+    After,
 }

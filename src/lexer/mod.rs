@@ -17,12 +17,18 @@ impl Lexer {
 
         while let Some(Ok(byte)) = iterator.next() {
             //skip whitespace
-            if byte == b' ' || byte == b'\t' {
+            if byte == b' ' {
                 self.offset += 1;
+                continue;
+            }
+            if byte == b'\t' {
+                self.offset += 1; // tabs are one char offset, we calc tabs later in error msg for
+                // correct formatting
                 continue;
             }
             if byte == b'\n' {
                 self.line += 1;
+                self.offset += 1;
 
                 continue;
             }
@@ -31,106 +37,66 @@ impl Lexer {
                 if let Some(Ok(b'/')) = iterator.peek() {
                     while let Some(Ok(byte)) = iterator.next()
                         && byte != b'\n'
-                    {}
+                    {
+                        self.offset += 2;
+                    }
                     continue;
                 }
             }
+            let single_token_span = Span {
+                start: self.offset,
+                end: self.offset + 1,
+                line: self.line,
+            };
+
             let token = match byte {
                 b'{' => Token {
                     kind: TokenKind::CurlyBraceOpen,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'}' => Token {
                     kind: TokenKind::CurlyBraceClose,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'(' => Token {
                     kind: TokenKind::ParenOpen,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b')' => Token {
                     kind: TokenKind::ParenClose,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b';' => Token {
                     kind: TokenKind::SemiColon,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'-' => Token {
                     kind: TokenKind::Negation,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'~' => Token {
                     kind: TokenKind::BitComplement,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'+' => Token {
                     kind: TokenKind::Add,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'*' => Token {
                     kind: TokenKind::Mul,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'/' => Token {
                     kind: TokenKind::Div,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'%' => Token {
                     kind: TokenKind::Modulo,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'^' => Token {
                     kind: TokenKind::BitwiseXor,
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
                 b'&' => match iterator.peek() {
                     Some(Ok(b'&')) => {
@@ -147,11 +113,7 @@ impl Lexer {
                     }
                     _ => Token {
                         kind: TokenKind::BitwiseAnd,
-                        span: Span {
-                            start: self.offset,
-                            end: self.offset + 1,
-                            line: self.line,
-                        },
+                        span: single_token_span,
                     },
                 },
                 b'|' => match iterator.peek() {
@@ -169,11 +131,7 @@ impl Lexer {
                     }
                     _ => Token {
                         kind: TokenKind::BitwiseOr,
-                        span: Span {
-                            start: self.offset,
-                            end: self.offset + 1,
-                            line: self.line,
-                        },
+                        span: single_token_span,
                     },
                 },
 
@@ -192,11 +150,7 @@ impl Lexer {
                     }
                     _ => Token {
                         kind: TokenKind::Assign,
-                        span: Span {
-                            start: self.offset,
-                            end: self.offset + 1,
-                            line: self.line,
-                        },
+                        span: single_token_span,
                     },
                 },
                 b'!' => match iterator.peek() {
@@ -214,11 +168,7 @@ impl Lexer {
                     }
                     _ => Token {
                         kind: TokenKind::LogicalNegation,
-                        span: Span {
-                            start: self.offset,
-                            end: self.offset + 1,
-                            line: self.line,
-                        },
+                        span: single_token_span,
                     },
                 },
                 b'<' => match iterator.peek() {
@@ -248,11 +198,7 @@ impl Lexer {
                     }
                     _ => Token {
                         kind: TokenKind::LT,
-                        span: Span {
-                            start: self.offset,
-                            end: self.offset + 1,
-                            line: self.line,
-                        },
+                        span: single_token_span,
                     },
                 },
                 b'>' => match iterator.peek() {
@@ -282,22 +228,14 @@ impl Lexer {
                     }
                     _ => Token {
                         kind: TokenKind::GT,
-                        span: Span {
-                            start: self.offset,
-                            end: self.offset + 1,
-                            line: self.line,
-                        },
+                        span: single_token_span,
                     },
                 },
                 n if is_num(n) => self.lex_num(n, &mut iterator),
                 a if is_alpha(a) => self.lex_alpha(a, &mut iterator),
                 u => Token {
                     kind: TokenKind::Unknown(String::from_utf8_lossy(&[u]).to_string()),
-                    span: Span {
-                        start: self.offset,
-                        end: self.offset + 1,
-                        line: self.line,
-                    },
+                    span: single_token_span,
                 },
             };
             self.offset += 1;
@@ -324,7 +262,7 @@ impl Lexer {
                 line: self.line,
             },
         };
-        self.offset += offset;
+        self.offset += offset - 1; //we are going to add 1 at the end
         token
     }
 
@@ -365,7 +303,7 @@ impl Lexer {
                 },
             },
         };
-        self.offset += offset;
+        self.offset += offset - 1; //we are going to add 1 at the end
         token
     }
 }
