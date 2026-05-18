@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use itertools::MultiPeek;
+
 #[derive(Debug)]
 pub struct Program(pub Function);
 
@@ -166,5 +168,29 @@ impl Expression {
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_tree(f, 0)
+    }
+}
+
+pub trait MultipeekExt: Iterator {
+    fn peek_n(&mut self, n: usize) -> Option<Self::Item>
+    where
+        Self::Item: Clone;
+}
+
+impl<T: Iterator> MultipeekExt for MultiPeek<T> {
+    fn peek_n(&mut self, n: usize) -> Option<Self::Item>
+    where
+        Self::Item: Clone,
+    {
+        self.reset_peek();
+
+        for _ in 0..(n - 1) {
+            self.peek()?;
+        }
+        let item = self.peek().cloned();
+
+        self.reset_peek();
+
+        item
     }
 }

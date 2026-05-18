@@ -1,9 +1,7 @@
 use clap::Parser;
+use itertools::Itertools;
 use rscc::codegen::CodeGen;
-use rscc::{
-    lexer::{self, Lexer},
-    parser,
-};
+use rscc::{lexer::Lexer, parser};
 use std::{
     ffi::OsString,
     fs::DirBuilder,
@@ -30,7 +28,7 @@ fn main() {
         println!("{:#?}", lex);
         return;
     }
-    let parse = parser::Parser::new(&file[..]).parse_program(&mut lex.into_iter().peekable());
+    let parse = parser::Parser::new(&file[..]).parse_program(&mut lex.into_iter().multipeek());
 
     if output_ast {
         println!("{:#?}", parse);

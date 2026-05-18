@@ -1,6 +1,9 @@
 #![allow(unused)]
 
 use crate::lexer::types::{Token, TokenKind};
+use itertools::{Itertools, MultiPeek, multipeek};
+use types::MultipeekExt;
+
 use std::{
     cmp,
     fmt::{Debug, Display},
@@ -19,10 +22,10 @@ impl<'a> Parser<'a> {
     pub fn new(buf: &'a [u8]) -> Parser<'a> {
         Parser { buf }
     }
-    pub fn parse_program(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Program {
+    pub fn parse_program(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Program {
         Program(self.parse_function(iterator))
     }
-    fn parse_function(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Function {
+    fn parse_function(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Function {
         let return_type = match get_token(iterator) {
             Token {
                 kind: TokenKind::Int,
@@ -42,7 +45,7 @@ impl<'a> Parser<'a> {
         self.expect(iterator, TokenKind::CurlyBraceOpen);
         let mut statements = Vec::new();
         loop {
-            match iterator.peek() {
+            match iterator.peek_n(1) {
                 Some(Token {
                     kind: TokenKind::CurlyBraceClose,
                     span: _,
@@ -54,36 +57,50 @@ impl<'a> Parser<'a> {
 
         Function(ident, Statements(statements))
     }
-    fn parse_statement(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Statement {
+    fn parse_statement(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Statement {
         let Token {
             kind: token,
             span: _,
         } = get_peek(iterator);
-        match token {
+        let token = match token {
             TokenKind::Return => {
                 iterator.next(); //eat return
                 let expr = self.parse_expression(iterator);
-                self.expect(iterator, TokenKind::SemiColon);
                 Statement::Return(expr)
             }
             TokenKind::Int => {
                 iterator.next(); //eat int
-                let expr = self.parse_expression(iterator);
-                match expr {
-                    Expression::Assign { ident, expr } => {
-                        self.expect(iterator, TokenKind::SemiColon);
-                        Statement::Declare(*ident, Some(*expr))
+                let ident = self.parse_unary(iterator);
+                let Expression::Ident(_) = ident else {
+                    panic!("uh oh")
+                };
+                match iterator.peek_n(1) {
+                    Some(Token {
+                        kind: TokenKind::Assign,
+                        span,
+                    }) => {
+                        iterator.next();
+                        let expr = self.parse_expression(iterator);
+                        Statement::Declare(ident, Some(expr))
                     }
-                    Expression::Ident(_) => Statement::Declare(expr, None),
-                    e => panic!("Expected expression, got {:?}", e),
+
+                    Some(Token {
+                        kind: TokenKind::SemiColon,
+                        span,
+                    }) => Statement::Declare(ident, None),
+                    Some(ref token) => {
+                        self.print_error(token, "semicolon or assign expr", ErrorPosition::Before)
+                    }
+                    None => panic!("unexpected EOF"),
                 }
             }
             _ => {
                 let expr = self.parse_expression(iterator);
-                self.expect(iterator, TokenKind::SemiColon);
                 Statement::Expr(expr)
             }
-        }
+        };
+        self.expect(iterator, TokenKind::SemiColon);
+        token
     }
     // <program> ::= <function>
     // <function> ::= "int" <id> "(" ")" "{" { <statement> } "}"
@@ -104,25 +121,30 @@ impl<'a> Parser<'a> {
     // <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int> | <ident>
     // <unary_op> ::= "!" | "~" | "-"
 
-    fn parse_expression(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
-        match iterator.peek() {
+    fn parse_expression(
+        &self,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
+    ) -> Expression {
+        println!("parsing expression");
+
+        match iterator.peek_n(2) {
             Some(Token {
-                kind: TokenKind::Ident(_),
+                kind: TokenKind::Assign,
                 span: _,
             }) => self.parse_assignment(iterator),
-            Some(_) => self.parse_logical_or(iterator),
-            None => {
-                panic!("unexpected EOF")
-            }
+            _ => self.parse_logical_or(iterator), // none or Some(_)
         }
     }
 
-    fn parse_assignment(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    fn parse_assignment(
+        &self,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
+    ) -> Expression {
         let ident = self.parse_unary(iterator);
         let Expression::Ident(_) = ident else {
             panic!("expeceted ident, got {:?}", ident)
         };
-        match iterator.peek() {
+        match iterator.peek_n(1) {
             Some(Token {
                 kind: TokenKind::Assign,
                 span: _,
@@ -139,12 +161,15 @@ impl<'a> Parser<'a> {
             None => panic!("unexpected EOF"),
         }
     }
-    fn parse_logical_or(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    fn parse_logical_or(
+        &self,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
+    ) -> Expression {
         let mut and_exrp = self.parse_logical_and(iterator);
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::Or => {
@@ -163,13 +188,13 @@ impl<'a> Parser<'a> {
 
     fn parse_logical_and(
         &self,
-        iterator: &mut Peekable<impl Iterator<Item = Token>>,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
     ) -> Expression {
         let mut bitwise_or_expr = self.parse_bitwise_or(iterator);
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::And => {
@@ -185,12 +210,15 @@ impl<'a> Parser<'a> {
         }
         bitwise_or_expr
     }
-    fn parse_bitwise_or(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    fn parse_bitwise_or(
+        &self,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
+    ) -> Expression {
         let mut bitwise_xor_expr = self.parse_bitwise_xor(iterator);
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::BitwiseOr => {
@@ -208,13 +236,13 @@ impl<'a> Parser<'a> {
     }
     fn parse_bitwise_xor(
         &self,
-        iterator: &mut Peekable<impl Iterator<Item = Token>>,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
     ) -> Expression {
         let mut bitwise_and_expr = self.parse_bitwise_and(iterator);
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::BitwiseXor => {
@@ -232,14 +260,14 @@ impl<'a> Parser<'a> {
     }
     fn parse_bitwise_and(
         &self,
-        iterator: &mut Peekable<impl Iterator<Item = Token>>,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
     ) -> Expression {
         let mut equality_expression = self.parse_equality(iterator);
 
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::BitwiseAnd => {
@@ -257,13 +285,13 @@ impl<'a> Parser<'a> {
     }
 
     // == !=
-    fn parse_equality(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    fn parse_equality(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Expression {
         let mut relational = self.parse_relational(iterator);
 
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::Equal | TokenKind::NotEqual => {
@@ -286,12 +314,15 @@ impl<'a> Parser<'a> {
     }
 
     // < > <= >=
-    fn parse_relational(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    fn parse_relational(
+        &self,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
+    ) -> Expression {
         let mut bitwise_shift_expr = self.parse_bitwise_shift(iterator);
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::LT | TokenKind::LTE | TokenKind::GT | TokenKind::GTE => {
@@ -318,14 +349,14 @@ impl<'a> Parser<'a> {
 
     fn parse_bitwise_shift(
         &self,
-        iterator: &mut Peekable<impl Iterator<Item = Token>>,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
     ) -> Expression {
         let mut term = self.parse_term(iterator);
 
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::BitwiseShiftLeft | TokenKind::BitwiseShiftRight => {
@@ -346,13 +377,13 @@ impl<'a> Parser<'a> {
         }
         term
     }
-    fn parse_term(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    fn parse_term(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Expression {
         let mut factor = self.parse_factor(iterator);
 
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::Add | TokenKind::Negation => {
@@ -374,12 +405,12 @@ impl<'a> Parser<'a> {
         factor
     }
 
-    fn parse_factor(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    fn parse_factor(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Expression {
         let mut factor = self.parse_unary(iterator);
         while let Some(Token {
             kind: next,
             span: _,
-        }) = iterator.peek().cloned()
+        }) = iterator.peek_n(1)
         {
             match next {
                 TokenKind::Mul | TokenKind::Div | TokenKind::Modulo => {
@@ -402,7 +433,7 @@ impl<'a> Parser<'a> {
         factor
     }
 
-    fn parse_unary(&self, iterator: &mut Peekable<impl Iterator<Item = Token>>) -> Expression {
+    fn parse_unary(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Expression {
         match iterator.next() {
             Some(token) => match token {
                 Token {
@@ -499,8 +530,10 @@ impl<'a> Parser<'a> {
 fn get_token(iterator: &mut impl Iterator<Item = Token>) -> Token {
     iterator.next().unwrap_or_else(|| panic!("unexpected EOF"))
 }
-fn get_peek(iterator: &mut Peekable<impl Iterator<Item = Token>>) -> &Token {
-    iterator.peek().unwrap_or_else(|| panic!("unexpected EOF"))
+fn get_peek(iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Token {
+    iterator
+        .peek_n(1)
+        .unwrap_or_else(|| panic!("unexpected EOF"))
 }
 
 enum ErrorPosition {
