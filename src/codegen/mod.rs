@@ -2,7 +2,9 @@
 
 use std::{collections::HashMap, fmt::format, path::Path};
 
-use crate::parser::types::{BinaryOp, Expression, Function, Program, Statement, UnaryOp};
+use crate::parser::types::{
+    BinaryOp, BlockItem, Declare, Expression, Function, Program, Statement, UnaryOp,
+};
 
 pub struct CodeGen {
     label_counter: u32,
@@ -22,10 +24,10 @@ impl CodeGen {
         self.gen_function(code.0)
     }
 
-    fn gen_function(&mut self, Function(name, statements): Function) -> String {
-        let mut body: String = statements.0.iter().map(|x| self.gen_statement(x)).collect();
-        if statements.0.len() != 0
-            && let Some(Statement::Return(_)) = statements.0.get(statements.0.len() - 1)
+    fn gen_function(&mut self, Function(name, block): Function) -> String {
+        let mut body: String = block.0.iter().map(|x| self.gen_block_item(x)).collect();
+        if block.0.len() != 0
+            && let Some(BlockItem::Statement(Statement::Return(_))) = block.0.get(block.0.len() - 1)
         {
             //ie there is a return, then do nothing
         } else {
@@ -43,6 +45,34 @@ impl CodeGen {
             {body}\n"
         )
     }
+    fn gen_block_item(&mut self, block_item: &BlockItem) -> String {
+        match block_item {
+            BlockItem::Statement(statement) => self.gen_statement(statement),
+            BlockItem::Declare(declare) => self.gen_decl(declare),
+            _ => panic!("unreadchable"),
+        }
+    }
+
+    fn gen_decl(&mut self, declare: &Declare) -> String {
+        let Declare(Expression::Ident(ident), expr) = declare else {
+            panic!("non ident in declare - should not happen")
+        };
+        if self.var_map.contains_key(ident) {
+            panic!("cannot redeclare {ident}");
+        }
+
+        self.var_map.insert(ident.clone(), self.ebp_offset);
+        self.ebp_offset += 1;
+        let expr = if let Some(expr) = expr {
+            self.gen_expression(&expr)
+        } else {
+            "".to_string()
+        };
+        format!(
+            "{expr}\
+                    \tpush \t%rax\n"
+        )
+    }
 
     fn gen_statement(&mut self, statement: &Statement) -> String {
         match statement {
@@ -53,23 +83,6 @@ impl CodeGen {
                     \tpop \t%rbp\n\
                     \tret",
                     self.gen_expression(&expr)
-                )
-            }
-            Statement::Declare(Expression::Ident(ident), expr) => {
-                if self.var_map.contains_key(ident) {
-                    panic!("cannot redeclare {ident}");
-                }
-
-                self.var_map.insert(ident.clone(), self.ebp_offset);
-                self.ebp_offset += 1;
-                let expr = if let Some(expr) = expr {
-                    self.gen_expression(&expr)
-                } else {
-                    "".to_string()
-                };
-                format!(
-                    "{expr}\
-                    \tpush \t%rax\n"
                 )
             }
             Statement::Expr(expression) => self.gen_expression(&expression),

@@ -1,6 +1,9 @@
 #![allow(unused)]
 
-use crate::lexer::types::{Token, TokenKind};
+use crate::{
+    lexer::types::{Token, TokenKind},
+    parser::types::{BlockItem, Declare},
+};
 use itertools::{Itertools, MultiPeek, multipeek};
 use types::MultipeekExt;
 
@@ -11,7 +14,7 @@ use std::{
     iter::Peekable,
     os, process,
 };
-use types::{BinaryOp, Expression, Function, Program, Statement, Statements, UnaryOp};
+use types::{BinaryOp, Block, Expression, Function, Program, Statement, UnaryOp};
 
 pub mod types;
 
@@ -50,12 +53,46 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::CurlyBraceClose,
                     span: _,
                 }) => break,
-                Some(_) => statements.push(self.parse_statement(iterator)),
+                Some(_) => statements.push(self.parse_block_item(iterator)),
                 None => panic!("unexpected EOF"),
             }
         }
 
-        Function(ident, Statements(statements))
+        Function(ident, Block(statements))
+    }
+    fn parse_block_item(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> BlockItem {
+        let Token { kind: token, span } = get_peek(iterator);
+        match token {
+            TokenKind::Int => {
+                iterator.next(); //eat int
+                let ident = self.parse_unary(iterator);
+                let Expression::Ident(_) = ident else {
+                    panic!("uh oh")
+                };
+                let token = match iterator.peek_n(1) {
+                    Some(Token {
+                        kind: TokenKind::Assign,
+                        span,
+                    }) => {
+                        iterator.next();
+                        let expr = self.parse_expression(iterator);
+                        BlockItem::Declare(Declare(ident, Some(expr)))
+                    }
+
+                    Some(Token {
+                        kind: TokenKind::SemiColon,
+                        span,
+                    }) => BlockItem::Declare(Declare(ident, None)),
+                    Some(ref token) => {
+                        self.print_error(token, "semicolon or assign expr", ErrorPosition::Before)
+                    }
+                    None => panic!("unexpected EOF"),
+                };
+                self.expect(iterator, TokenKind::SemiColon);
+                token
+            }
+            _ => BlockItem::Statement(self.parse_statement(iterator)),
+        }
     }
     fn parse_statement(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Statement {
         let Token {
@@ -67,31 +104,6 @@ impl<'a> Parser<'a> {
                 iterator.next(); //eat return
                 let expr = self.parse_expression(iterator);
                 Statement::Return(expr)
-            }
-            TokenKind::Int => {
-                iterator.next(); //eat int
-                let ident = self.parse_unary(iterator);
-                let Expression::Ident(_) = ident else {
-                    panic!("uh oh")
-                };
-                match iterator.peek_n(1) {
-                    Some(Token {
-                        kind: TokenKind::Assign,
-                        span,
-                    }) => {
-                        iterator.next();
-                        let expr = self.parse_expression(iterator);
-                        Statement::Declare(ident, Some(expr))
-                    }
-
-                    Some(Token {
-                        kind: TokenKind::SemiColon,
-                        span,
-                    }) => Statement::Declare(ident, None),
-                    Some(ref token) => {
-                        self.print_error(token, "semicolon or assign expr", ErrorPosition::Before)
-                    }
-                    None => panic!("unexpected EOF"),
                 }
             }
             _ => {
