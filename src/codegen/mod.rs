@@ -7,7 +7,7 @@ use crate::parser::types::{BinaryOp, Expression, Function, Program, Statement, U
 pub struct CodeGen {
     label_counter: u32,
     var_map: HashMap<String, u32>,
-    ebp_offset: u32, //in bytes - we mult by 4 later
+    ebp_offset: u32, //in bytes - we mult by 8 later
 }
 
 impl CodeGen {
@@ -24,10 +24,17 @@ impl CodeGen {
 
     fn gen_function(&mut self, Function(name, statements): Function) -> String {
         let mut body: String = statements.0.iter().map(|x| self.gen_statement(x)).collect();
-        if let Some(Statement::Return(_)) = statements.0.get(statements.0.len() - 1) {
+        if statements.0.len() != 0
+            && let Some(Statement::Return(_)) = statements.0.get(statements.0.len() - 1)
+        {
             //ie there is a return, then do nothing
         } else {
-            body.push_str(&format!("movl \t$0, %eax\n\tret\n"));
+            body.push_str(&format!(
+                "\tmovl \t$0, %eax\n \
+                \tmov \t%rbp, %rsp\n \
+                \tpop \t%rbp\n \
+                \tret"
+            ));
         };
         format!(
             "\t.globl _{name}\n_{name}:\n\
@@ -55,12 +62,15 @@ impl CodeGen {
 
                 self.var_map.insert(ident.clone(), self.ebp_offset);
                 self.ebp_offset += 1;
-                if let Some(expr) = expr {
-                    let expr = self.gen_expression(&expr);
-                    format!("{expr}\tpush \t%rax\n")
+                let expr = if let Some(expr) = expr {
+                    self.gen_expression(&expr)
                 } else {
                     "".to_string()
-                }
+                };
+                format!(
+                    "{expr}\
+                    \tpush \t%rax\n"
+                )
             }
             Statement::Expr(expression) => self.gen_expression(&expression),
             _ => panic!("unreadchable"),
@@ -172,8 +182,8 @@ impl CodeGen {
                     .get(ident)
                     .expect(&format!("using {ident} before you declared it")))
                     as i32
-                    * -4;
-                format!("movl \t{offset}(%ebp), %eax\n")
+                    * -8;
+                format!("\tmovl \t{offset}(%rbp), %eax\n")
             }
             Expression::Assign { ident, expr } => {
                 let Expression::Ident(ident) = ident.as_ref() else {
@@ -184,10 +194,10 @@ impl CodeGen {
                     .get(ident)
                     .expect(&format!("must declare {} before assignment", ident)))
                     as i32
-                    * -4;
+                    * -8;
 
                 let expr = self.gen_expression(expr);
-                format!("{expr}\n movl \t%eax, {offset}(%ebp)\n")
+                format!("{expr}\tmovl \t%eax, {offset}(%rbp)\n")
             }
         }
     }
