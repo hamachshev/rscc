@@ -35,7 +35,7 @@ impl CodeGen {
                 "\tmovl \t$0, %eax\n \
                 \tmov \t%rbp, %rsp\n \
                 \tpop \t%rbp\n \
-                \tret"
+                \tret\n"
             ));
         };
         format!(
@@ -78,15 +78,43 @@ impl CodeGen {
         match statement {
             Statement::Return(expr) => {
                 format!(
-                    "{}\
-                    \tmov \t%rbp, %rsp\n\
+                    "{}\tmov \t%rbp, %rsp\n\
                     \tpop \t%rbp\n\
-                    \tret",
+                    \tret\n",
                     self.gen_expression(&expr)
                 )
             }
             Statement::Expr(expression) => self.gen_expression(&expression),
-            _ => panic!("unreadchable"),
+            Statement::If {
+                pred,
+                then,
+                otherwise,
+            } => {
+                let pred = self.gen_expression(pred);
+                let then = self.gen_statement(then);
+                let else_label = format!("_label{}", self.label_counter);
+                self.label_counter += 1;
+                let otherwise = if let Some(otherwise) = otherwise {
+                    self.gen_statement(otherwise)
+                } else {
+                    "".to_string()
+                };
+                let end_label = format!("_label{}", self.label_counter);
+                self.label_counter += 1;
+
+                let mut output = format!(
+                    "{pred}\
+                    \tcmpl \t$0, %eax\n\
+                    \tje \t{else_label}\n\
+                    {then}\
+                    \tjmp \t{end_label}\n\
+                    {else_label}:\n\
+                    {otherwise}\
+                    {end_label}:\n\
+                    "
+                );
+                output
+            }
         }
     }
 
@@ -216,7 +244,26 @@ impl CodeGen {
                 pred,
                 then,
                 otherwise,
-            } => todo!(),
+            } => {
+                let pred = self.gen_expression(pred);
+                let then = self.gen_expression(then);
+                let otherwise = self.gen_expression(otherwise);
+                let otherwise_label = format!("_label{}", self.label_counter);
+                self.label_counter += 1;
+                let end_label = format!("_label{}", self.label_counter);
+                self.label_counter += 1;
+
+                format!(
+                    "{pred}\
+                    \tcmpl \t$0, %eax\n\
+                    \tje \t{otherwise_label}\n\
+                    {then}\
+                    \tjmp \t{end_label}\n\
+                    {otherwise_label}:\n\
+                    {otherwise}\
+                    {end_label}:\n"
+                )
+            }
         }
     }
 }

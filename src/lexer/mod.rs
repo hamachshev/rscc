@@ -306,7 +306,7 @@ impl Lexer {
                 span,
             },
             "else" => Token {
-                kind: TokenKind::If,
+                kind: TokenKind::Else,
                 span,
             },
             _ => Token {

@@ -103,27 +103,37 @@ impl<'a> Parser<'a> {
             TokenKind::Return => {
                 iterator.next(); //eat return
                 let expr = self.parse_expression(iterator);
+                self.expect(iterator, TokenKind::SemiColon);
                 Statement::Return(expr)
             }
             TokenKind::If => {
-                iterator.next();
+                iterator.next(); //eat if 
                 self.expect(iterator, TokenKind::ParenOpen);
                 let pred = self.parse_expression(iterator);
                 self.expect(iterator, TokenKind::ParenClose);
                 let then = Box::new(self.parse_statement(iterator));
-
+                let otherwise = match iterator.peek_n(1) {
+                    Some(Token {
+                        kind: TokenKind::Else,
+                        span: _,
+                    }) => {
+                        let tok = iterator.next(); // eat else
+                        Some(Box::new(self.parse_statement(iterator)))
+                    }
+                    _ => None,
+                };
                 Statement::If {
                     pred,
                     then,
-                    otherwise: None,
+                    otherwise,
                 }
             }
             _ => {
                 let expr = self.parse_expression(iterator);
+                self.expect(iterator, TokenKind::SemiColon);
                 Statement::Expr(expr)
             }
         };
-        self.expect(iterator, TokenKind::SemiColon);
         token
     }
     // <program> ::= <function>
@@ -152,8 +162,6 @@ impl<'a> Parser<'a> {
         &self,
         iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
     ) -> Expression {
-        println!("parsing expression");
-
         match iterator.peek_n(2) {
             Some(Token {
                 kind: TokenKind::Assign,
