@@ -104,6 +104,18 @@ impl<'a> Parser<'a> {
                 iterator.next(); //eat return
                 let expr = self.parse_expression(iterator);
                 Statement::Return(expr)
+            }
+            TokenKind::If => {
+                iterator.next();
+                self.expect(iterator, TokenKind::ParenOpen);
+                let pred = self.parse_expression(iterator);
+                self.expect(iterator, TokenKind::ParenClose);
+                let then = Box::new(self.parse_statement(iterator));
+
+                Statement::If {
+                    pred,
+                    then,
+                    otherwise: None,
                 }
             }
             _ => {
@@ -115,11 +127,14 @@ impl<'a> Parser<'a> {
         token
     }
     // <program> ::= <function>
-    // <function> ::= "int" <id> "(" ")" "{" { <statement> } "}"
+    // <function> ::= "int" <id> "(" ")" <block>
+    // <block> := "{" { <block_item> } "}"
+    // <block_item> ::= <statment> | <declaration>
+    // <declaration> ::= "int" <ident> [ = <exp>] ";"
     // <statement> ::= "return" <exp> ";"
     //               | <exp> ";"
-    //               | "int" <ident> [ = <exp>] ";"
-    // <exp> ::= <ident> "=" <exp> | <logical-or-exp>
+    // <exp> ::= <ident> "=" <exp> | <conditional_exp>
+    // <conditional_exp> ::= <logical-or-exp> [ "?" <exp> ":" <conditional_exp>]
     // <logical_or_exp> ::= <and-exp> { "||" <and-exp> }
     // <and-exp> ::= <equality-exp> { "&&" <equality-exp> }
     // <biwise-or-exp> ::= <bitwise-xor-expr> { "|" <bitwise-xor-expr> }
@@ -144,7 +159,7 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::Assign,
                 span: _,
             }) => self.parse_assignment(iterator),
-            _ => self.parse_logical_or(iterator), // none or Some(_)
+            _ => self.parse_conditional(iterator), // none or Some(_)
         }
     }
 
@@ -171,6 +186,29 @@ impl<'a> Parser<'a> {
             }
             Some(_) => ident,
             None => panic!("unexpected EOF"),
+        }
+    }
+    fn parse_conditional(
+        &self,
+        iterator: &mut MultiPeek<impl Iterator<Item = Token>>,
+    ) -> Expression {
+        let pred = self.parse_logical_or(iterator);
+        match iterator.peek_n(1) {
+            Some(Token {
+                kind: TokenKind::QMark,
+                span: _,
+            }) => {
+                iterator.next(); //eat the qmark
+                let then = Box::new(self.parse_expression(iterator));
+                self.expect(iterator, TokenKind::Colon);
+                let otherwise = Box::new(self.parse_conditional(iterator));
+                Expression::Conditional {
+                    pred: Box::new(pred),
+                    then,
+                    otherwise,
+                }
+            }
+            _ => pred,
         }
     }
     fn parse_logical_or(

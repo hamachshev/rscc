@@ -38,6 +38,7 @@ impl Lexer {
                     while let Some(Ok(byte)) = iterator.next()
                         && byte != b'\n'
                     {
+                        // FIXME: this is wrong
                         self.offset += 2;
                     }
                     continue;
@@ -96,6 +97,14 @@ impl Lexer {
                 },
                 b'^' => Token {
                     kind: TokenKind::BitwiseXor,
+                    span: single_token_span,
+                },
+                b':' => Token {
+                    kind: TokenKind::Colon,
+                    span: single_token_span,
+                },
+                b'?' => Token {
+                    kind: TokenKind::QMark,
                     span: single_token_span,
                 },
                 b'&' => match iterator.peek() {
@@ -277,30 +286,32 @@ impl Lexer {
         }
         let offset = string.len();
         let string = String::from_utf8(string).unwrap();
+        let span = Span {
+            start: self.offset,
+            end: self.offset + offset,
+            line: self.line,
+        };
+
         let token = match string.as_ref() {
             "return" => Token {
                 kind: TokenKind::Return,
-                span: Span {
-                    start: self.offset,
-                    end: self.offset + offset,
-                    line: self.line,
-                },
+                span,
             },
             "int" => Token {
                 kind: TokenKind::Int,
-                span: Span {
-                    start: self.offset,
-                    end: self.offset + offset,
-                    line: self.line,
-                },
+                span,
+            },
+            "if" => Token {
+                kind: TokenKind::If,
+                span,
+            },
+            "else" => Token {
+                kind: TokenKind::If,
+                span,
             },
             _ => Token {
                 kind: TokenKind::Ident(string),
-                span: Span {
-                    start: self.offset,
-                    end: self.offset + offset,
-                    line: self.line,
-                },
+                span,
             },
         };
         self.offset += offset - 1; //we are going to add 1 at the end

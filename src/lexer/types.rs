@@ -37,6 +37,10 @@ pub enum TokenKind {
     BitwiseShiftLeft,
     BitwiseShiftRight,
     Assign,
+    If,
+    Else,
+    Colon,
+    QMark,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

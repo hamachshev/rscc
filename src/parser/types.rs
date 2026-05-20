@@ -12,7 +12,7 @@ impl Display for Program {
 }
 
 #[derive(Debug)]
-pub struct Function(pub String, pub Statements);
+pub struct Function(pub String, pub Block);
 
 impl Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -25,9 +25,9 @@ impl Display for Function {
 }
 
 #[derive(Debug)]
-pub struct Statements(pub Vec<Statement>);
+pub struct Block(pub Vec<BlockItem>);
 
-impl Display for Statements {
+impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for statement in self.0.iter() {
             write!(f, "{}", statement)?
@@ -37,16 +37,18 @@ impl Display for Statements {
 }
 
 #[derive(Debug)]
-pub enum Statement {
-    Return(Expression),
-    Declare(Expression, Option<Expression>),
-    Expr(Expression),
+pub enum BlockItem {
+    Statement(Statement),
+    Declare(Declare),
 }
-impl Display for Statement {
+
+impl Display for BlockItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Statement::Return(expression) => writeln!(f, "RETURN Int <{}>", expression),
-            Statement::Declare(name, expression) => {
+            BlockItem::Statement(statement) => {
+                write!(f, "{}", statement)
+            }
+            BlockItem::Declare(Declare(name, expression)) => {
                 write!(f, "DECLARE {} = ", name)?;
                 match expression {
                     Some(expr) => {
@@ -57,7 +59,33 @@ impl Display for Statement {
                     }
                 }
             }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Declare(pub Expression, pub Option<Expression>);
+
+#[derive(Debug)]
+pub enum Statement {
+    Return(Expression),
+    If {
+        pred: Expression,
+        then: Box<Statement>,
+        otherwise: Option<Box<Statement>>,
+    },
+    Expr(Expression),
+}
+impl Display for Statement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Statement::Return(expression) => writeln!(f, "RETURN Int <{}>", expression),
             Statement::Expr(expression) => todo!(),
+            Statement::If {
+                pred,
+                then,
+                otherwise,
+            } => todo!(),
         }
     }
 }
@@ -78,6 +106,11 @@ pub enum Expression {
     Assign {
         ident: Box<Expression>,
         expr: Box<Expression>,
+    },
+    Conditional {
+        pred: Box<Expression>,
+        then: Box<Expression>,
+        otherwise: Box<Expression>,
     },
 }
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -161,6 +194,11 @@ impl Expression {
             }
             Expression::Ident(_) => todo!(),
             Expression::Assign { ident, expr } => todo!(),
+            Expression::Conditional {
+                pred,
+                then,
+                otherwise,
+            } => todo!(),
         }
     }
 }

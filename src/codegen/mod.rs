@@ -212,6 +212,11 @@ impl CodeGen {
                 let expr = self.gen_expression(expr);
                 format!("{expr}\tmovl \t%eax, {offset}(%rbp)\n")
             }
+            Expression::Conditional {
+                pred,
+                then,
+                otherwise,
+            } => todo!(),
         }
     }
 }
