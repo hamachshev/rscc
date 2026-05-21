@@ -3,12 +3,12 @@
 use std::{collections::HashMap, fmt::format, path::Path};
 
 use crate::parser::types::{
-    BinaryOp, BlockItem, Declare, Expression, Function, Program, Statement, UnaryOp,
+    BinaryOp, Block, BlockItem, Declare, Expression, Function, Program, Statement, UnaryOp,
 };
 
 pub struct CodeGen {
     label_counter: u32,
-    var_map: HashMap<String, u32>,
+    var_map_stack: Vec<HashMap<String, u32>>,
     ebp_offset: u32, //in bytes - we mult by 8 later
 }
 
@@ -16,7 +16,7 @@ impl CodeGen {
     pub fn new() -> CodeGen {
         CodeGen {
             label_counter: 0,
-            var_map: HashMap::new(),
+            var_map_stack: Vec::new(),
             ebp_offset: 1,
         }
     }
@@ -25,7 +25,7 @@ impl CodeGen {
     }
 
     fn gen_function(&mut self, Function(name, block): Function) -> String {
-        let mut body: String = block.0.iter().map(|x| self.gen_block_item(x)).collect();
+        let mut body = self.gen_block(&block);
         if block.0.len() != 0
             && let Some(BlockItem::Statement(Statement::Return(_))) = block.0.get(block.0.len() - 1)
         {
@@ -45,6 +45,12 @@ impl CodeGen {
             {body}\n"
         )
     }
+    fn gen_block(&mut self, Block(block): &Block) -> String {
+        self.var_map_stack.push(HashMap::new());
+        let mut body: String = block.iter().map(|x| self.gen_block_item(x)).collect();
+        let _ = self.var_map_stack.pop();
+        body
+    }
     fn gen_block_item(&mut self, block_item: &BlockItem) -> String {
         match block_item {
             BlockItem::Statement(statement) => self.gen_statement(statement),
@@ -57,11 +63,18 @@ impl CodeGen {
         let Declare(Expression::Ident(ident), expr) = declare else {
             panic!("non ident in declare - should not happen")
         };
-        if self.var_map.contains_key(ident) {
+        let var_map_len = self.var_map_stack.len();
+        if self.var_map_stack.last().unwrap().contains_key(ident) {
+            //get latest var
+            //map
             panic!("cannot redeclare {ident}");
         }
 
-        self.var_map.insert(ident.clone(), self.ebp_offset);
+        self.var_map_stack
+            .last_mut()
+            .unwrap()
+            .insert(ident.clone(), self.ebp_offset);
+
         self.ebp_offset += 1;
         let expr = if let Some(expr) = expr {
             self.gen_expression(&expr)
@@ -70,7 +83,7 @@ impl CodeGen {
         };
         format!(
             "{expr}\
-                    \tpush \t%rax\n"
+            \tpush \t%rax\n"
         )
     }
 
@@ -115,6 +128,7 @@ impl CodeGen {
                 );
                 output
             }
+            Statement::Block(block) => self.gen_block(&block),
         }
     }
 
@@ -219,8 +233,10 @@ impl CodeGen {
             }
             Expression::Ident(ident) => {
                 let offset = *(self
-                    .var_map
-                    .get(ident)
+                    .var_map_stack
+                    .iter()
+                    .rev()
+                    .find_map(|m| m.get(ident))
                     .expect(&format!("using {ident} before you declared it")))
                     as i32
                     * -8;
@@ -231,8 +247,10 @@ impl CodeGen {
                     panic!("non ident expression for assign expression")
                 };
                 let offset = *(self
-                    .var_map
-                    .get(ident)
+                    .var_map_stack
+                    .iter()
+                    .rev()
+                    .find_map(|m| m.get(ident))
                     .expect(&format!("must declare {} before assignment", ident)))
                     as i32
                     * -8;

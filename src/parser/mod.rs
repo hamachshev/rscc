@@ -26,7 +26,9 @@ impl<'a> Parser<'a> {
         Parser { buf }
     }
     pub fn parse_program(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Program {
-        Program(self.parse_function(iterator))
+        let body = self.parse_function(iterator);
+        self.expect(iterator, TokenKind::EOF);
+        Program(body)
     }
     fn parse_function(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Function {
         let return_type = match get_token(iterator) {
@@ -45,20 +47,24 @@ impl<'a> Parser<'a> {
         };
         self.expect(iterator, TokenKind::ParenOpen);
         self.expect(iterator, TokenKind::ParenClose);
+        let block = self.parse_block(iterator);
+        Function(ident, block)
+    }
+    fn parse_block(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Block {
         self.expect(iterator, TokenKind::CurlyBraceOpen);
-        let mut statements = Vec::new();
+        let mut block_items = Vec::new();
         loop {
             match iterator.peek_n(1) {
                 Some(Token {
                     kind: TokenKind::CurlyBraceClose,
                     span: _,
                 }) => break,
-                Some(_) => statements.push(self.parse_block_item(iterator)),
+                Some(_) => block_items.push(self.parse_block_item(iterator)),
                 None => panic!("unexpected EOF"),
             }
         }
-
-        Function(ident, Block(statements))
+        self.expect(iterator, TokenKind::CurlyBraceClose);
+        Block(block_items)
     }
     fn parse_block_item(&self, iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> BlockItem {
         let Token { kind: token, span } = get_peek(iterator);
@@ -128,6 +134,10 @@ impl<'a> Parser<'a> {
                     otherwise,
                 }
             }
+            TokenKind::CurlyBraceOpen => {
+                let block = self.parse_block(iterator);
+                Statement::Block(block)
+            }
             _ => {
                 let expr = self.parse_expression(iterator);
                 self.expect(iterator, TokenKind::SemiColon);
@@ -143,6 +153,7 @@ impl<'a> Parser<'a> {
     // <declaration> ::= "int" <ident> [ = <exp>] ";"
     // <statement> ::= "return" <exp> ";"
     //               | <exp> ";"
+    //               | <block>
     // <exp> ::= <ident> "=" <exp> | <conditional_exp>
     // <conditional_exp> ::= <logical-or-exp> [ "?" <exp> ":" <conditional_exp>]
     // <logical_or_exp> ::= <and-exp> { "||" <and-exp> }
@@ -586,7 +597,7 @@ impl<'a> Parser<'a> {
 }
 
 fn get_token(iterator: &mut impl Iterator<Item = Token>) -> Token {
-    iterator.next().unwrap_or_else(|| panic!("unexpected EOF"))
+    iterator.next().unwrap_or_else(|| panic!("unexpected EOF!"))
 }
 fn get_peek(iterator: &mut MultiPeek<impl Iterator<Item = Token>>) -> Token {
     iterator

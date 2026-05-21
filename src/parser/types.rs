@@ -75,7 +75,9 @@ pub enum Statement {
         otherwise: Option<Box<Statement>>,
     },
     Expr(Expression),
+    Block(Block),
 }
+
 impl Display for Statement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -86,6 +88,7 @@ impl Display for Statement {
                 then,
                 otherwise,
             } => todo!(),
+            Statement::Block(block) => todo!(),
         }
     }
 }

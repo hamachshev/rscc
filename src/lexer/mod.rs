@@ -250,6 +250,15 @@ impl Lexer {
             self.offset += 1;
             tokens.push(token);
         }
+        //add EOF - span is -1 bc added to offset above
+        tokens.push(Token {
+            kind: TokenKind::EOF,
+            span: Span {
+                start: self.offset - 1,
+                end: self.offset - 1,
+                line: self.line,
+            },
+        });
         Ok(tokens)
     }
     fn lex_num(&mut self, num_start: u8, iterator: &mut Peekable<Bytes<impl Read>>) -> Token {

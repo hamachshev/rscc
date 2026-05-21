@@ -41,6 +41,7 @@ pub enum TokenKind {
     Else,
     Colon,
     QMark,
+    EOF,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
