@@ -138,6 +138,120 @@ impl<'a> Parser<'a> {
                 let block = self.parse_block(iterator);
                 Statement::Block(block)
             }
+            TokenKind::SemiColon => {
+                iterator.next();
+                Statement::Null
+            }
+            TokenKind::For => {
+                iterator.next();
+                self.expect(iterator, TokenKind::ParenOpen);
+                let Token {
+                    kind: token,
+                    span: _,
+                } = get_peek(iterator);
+                match token {
+                    TokenKind::Int => {
+                        let decl = self.parse_block_item(iterator);
+                        let BlockItem::Declare(decl) = decl else {
+                            //TODO: add normal error messag
+                            panic!("ahhh need decl or expression or none in for init not statement")
+                        };
+                        //declare eats the semicolon
+                        let condition = match iterator.peek_n(1) {
+                            Some(Token {
+                                kind: TokenKind::SemiColon,
+                                ..
+                            }) => Expression::Const(1),
+                            Some(expr) => self.parse_expression(iterator),
+                            None => panic!("unexpected EOF"),
+                        };
+                        self.expect(iterator, TokenKind::SemiColon);
+
+                        let post = match iterator.peek_n(1) {
+                            Some(Token {
+                                kind: TokenKind::ParenClose,
+                                ..
+                            }) => None,
+                            Some(expr) => Some(self.parse_expression(iterator)),
+                            None => panic!("unexpected EOF"),
+                        };
+                        self.expect(iterator, TokenKind::ParenClose);
+                        let body = Box::new(self.parse_statement(iterator));
+                        Statement::ForDecl {
+                            init: Some(decl),
+                            condition,
+                            post,
+                            body,
+                        }
+                    }
+                    _ => {
+                        let init = match iterator.peek_n(1) {
+                            Some(Token {
+                                kind: TokenKind::SemiColon,
+                                ..
+                            }) => None,
+                            Some(_) => Some(self.parse_expression(iterator)),
+                            None => panic!("unexpected EOF"),
+                        };
+
+                        self.expect(iterator, TokenKind::SemiColon);
+
+                        let condition = match iterator.peek_n(1) {
+                            Some(Token {
+                                kind: TokenKind::SemiColon,
+                                ..
+                            }) => Expression::Const(1),
+                            Some(expr) => self.parse_expression(iterator),
+                            None => panic!("unexpected EOF"),
+                        };
+
+                        self.expect(iterator, TokenKind::SemiColon);
+
+                        let post = match iterator.peek_n(1) {
+                            Some(Token {
+                                kind: TokenKind::ParenClose,
+                                ..
+                            }) => None,
+                            Some(expr) => Some(self.parse_expression(iterator)),
+                            None => panic!("unexpected EOF"),
+                        };
+                        self.expect(iterator, TokenKind::ParenClose);
+                        let body = Box::new(self.parse_statement(iterator));
+                        Statement::For {
+                            init,
+                            condition,
+                            post,
+                            body,
+                        }
+                    }
+                }
+            }
+            TokenKind::While => {
+                iterator.next(); // eat while
+                self.expect(iterator, TokenKind::ParenOpen);
+                let condition = self.parse_expression(iterator);
+                self.expect(iterator, TokenKind::ParenClose);
+                let body = Box::new(self.parse_statement(iterator));
+                Statement::While { condition, body }
+            }
+            TokenKind::Do => {
+                iterator.next(); // eat do
+                let body = Box::new(self.parse_statement(iterator));
+                self.expect(iterator, TokenKind::While);
+                let condition = self.parse_expression(iterator);
+                self.expect(iterator, TokenKind::SemiColon);
+                Statement::Do { body, condition }
+            }
+            TokenKind::Break => {
+                iterator.next();
+                self.expect(iterator, TokenKind::SemiColon);
+                Statement::Break
+            }
+            TokenKind::Continue => {
+                iterator.next();
+                self.expect(iterator, TokenKind::SemiColon);
+                Statement::Continue
+            }
             _ => {
                 let expr = self.parse_expression(iterator);
                 self.expect(iterator, TokenKind::SemiColon);

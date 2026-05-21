@@ -9,6 +9,7 @@ use crate::parser::types::{
 pub struct CodeGen {
     label_counter: u32,
     var_map_stack: Vec<HashMap<String, u32>>,
+    loop_ctx_stack: Vec<LoopCtx>,
     ebp_offset: u32, //in bytes - we mult by 8 later
 }
 
@@ -17,6 +18,7 @@ impl CodeGen {
         CodeGen {
             label_counter: 0,
             var_map_stack: Vec::new(),
+            loop_ctx_stack: Vec::new(),
             ebp_offset: 1,
         }
     }
@@ -66,7 +68,6 @@ impl CodeGen {
         let Declare(Expression::Ident(ident), expr) = declare else {
             panic!("non ident in declare - should not happen")
         };
-        let var_map_len = self.var_map_stack.len();
         if self.var_map_stack.last().unwrap().contains_key(ident) {
             //get latest var
             //map
@@ -77,6 +78,8 @@ impl CodeGen {
             .last_mut()
             .unwrap()
             .insert(ident.clone(), self.ebp_offset);
+
+        println!("{:?}....", self.var_map_stack);
 
         self.ebp_offset += 1;
         let expr = if let Some(expr) = expr {
@@ -132,6 +135,158 @@ impl CodeGen {
                 output
             }
             Statement::Block(block) => self.gen_block(&block),
+            Statement::For {
+                init,
+                condition,
+                post,
+                body,
+            } => {
+                let condition_label = self.make_label();
+                let post_label = self.make_label();
+                let end_label = self.make_label();
+
+                let ctx = LoopCtx {
+                    continue_label: post_label.clone(),
+                    break_label: end_label.clone(),
+                };
+                self.loop_ctx_stack.push(ctx);
+
+                let init = init
+                    .as_ref()
+                    .map(|i| self.gen_expression(i))
+                    .unwrap_or_default();
+                let condition = self.gen_expression(condition);
+                let post = post
+                    .as_ref()
+                    .map(|ref i| self.gen_expression(i))
+                    .unwrap_or_default();
+                let body = self.gen_statement(body);
+
+                self.loop_ctx_stack.pop();
+
+                format!(
+                    "{init}\
+                {condition_label}:\n\
+                {condition}\
+                \tje \t{end_label}\n\
+                {body}\
+                {post_label}:\n\
+                {post}\
+                \tjmp \t{condition_label}\n\
+                {end_label}:\n\
+                "
+                )
+            }
+            Statement::ForDecl {
+                init,
+                condition,
+                post,
+                body,
+            } => {
+                let condition_label = self.make_label();
+                let post_label = self.make_label();
+                let end_label = self.make_label();
+
+                let ctx = LoopCtx {
+                    continue_label: post_label.clone(),
+                    break_label: end_label.clone(),
+                };
+                self.loop_ctx_stack.push(ctx);
+                self.var_map_stack.push(HashMap::new());
+
+                let init = init.as_ref().map(|i| self.gen_decl(i)).unwrap_or_default();
+                let condition = self.gen_expression(condition);
+                let post = post
+                    .as_ref()
+                    .map(|ref i| self.gen_expression(i))
+                    .unwrap_or_default();
+                let body = self.gen_statement(body);
+
+                self.loop_ctx_stack.pop();
+                self.var_map_stack.pop();
+                self.ebp_offset -= 1; // this is assuming only one decl in the for loop
+
+                format!(
+                    "{init}\
+                {condition_label}:\n\
+                {condition}\
+                \tje \t{end_label}\n\
+                {body}\
+                {post_label}:\n\
+                {post}\
+                \tjmp \t{condition_label}\n\
+                {end_label}:\n\
+                \taddq \t$8, %rsp\n\
+                "
+                ) // this is assuming only one decl in the for loop
+            }
+            Statement::While { condition, body } => {
+                let condition_label = self.make_label();
+                let end_label = self.make_label();
+
+                let ctx = LoopCtx {
+                    continue_label: condition_label.clone(),
+                    break_label: end_label.clone(),
+                };
+                self.loop_ctx_stack.push(ctx);
+
+                let condition = self.gen_expression(condition);
+                let body = self.gen_statement(body);
+
+                self.loop_ctx_stack.pop();
+
+                format!(
+                    "{condition_label}:\n\
+                    {condition}\
+                    \tcmpl \t$0, %eax\n\
+                    \tje \t{end_label}\n\
+                    {body}\
+                    \tjmp \t{condition_label}\n\
+                    {end_label}:\n\
+                    "
+                )
+            }
+            Statement::Do { body, condition } => {
+                let body_label = self.make_label();
+                let end_label = self.make_label();
+
+                let ctx = LoopCtx {
+                    continue_label: body_label.clone(),
+                    break_label: end_label.clone(),
+                };
+                self.loop_ctx_stack.push(ctx);
+
+                let body = self.gen_statement(body);
+                let condition = self.gen_expression(condition);
+
+                self.loop_ctx_stack.pop();
+
+                format!(
+                    "{body_label}:\n\
+                    {body}\
+                    {condition}\
+                    \tcmpl \t$0, %eax\n\
+                    \tje \t{end_label}\n\
+                    \tjmp \t{body_label}\n\
+                    {end_label}:\n\
+                    "
+                )
+            }
+            Statement::Break => {
+                let LoopCtx { break_label, .. } = self
+                    .loop_ctx_stack
+                    .last()
+                    .expect("cant use break outside of a loop");
+                format!("\tjmp \t{break_label}\n")
+            }
+            Statement::Continue => {
+                let LoopCtx { continue_label, .. } = self
+                    .loop_ctx_stack
+                    .last()
+                    .expect("cant use break outside of a loop");
+                format!("\tjmp \t{continue_label}\n")
+            }
+            Statement::Null => "".to_string(),
         }
     }
 
@@ -204,10 +359,10 @@ impl CodeGen {
                             "{rhs}\tpush \t%rax\n{lhs}\tpop \t%rcx\n\tcmpl \t%ecx, %eax\n\tmovl \t$0, %eax\n"
                         );
                         asm.push_str(match op {
-                            BinaryOp::LT => "\tsetl %al\n",
-                            BinaryOp::LTE => "\tsetle %al\n",
-                            BinaryOp::GT => "\tsetg %al\n",
-                            BinaryOp::GTE => "\tsetge %al\n",
+                            BinaryOp::LT => "\tsetl \t%al\n",
+                            BinaryOp::LTE => "\tsetle \t%al\n",
+                            BinaryOp::GT => "\tsetg \t%al\n",
+                            BinaryOp::GTE => "\tsetge \t%al\n",
                             _ => panic!("should not happen"),
                         });
                         asm
@@ -235,6 +390,15 @@ impl CodeGen {
                 }
             }
             Expression::Ident(ident) => {
+                println!(
+                    "using var {:?}: from map {:?}",
+                    ident,
+                    self.var_map_stack
+                        .iter()
+                        .rev()
+                        .find(|m| m.contains_key(ident))
+                        .unwrap()
+                );
                 let offset = *(self
                     .var_map_stack
                     .iter()
@@ -285,7 +449,13 @@ impl CodeGen {
                     {end_label}:\n"
                 )
             }
+            Expression::Null => "".to_string(),
         }
+    }
+    fn make_label(&mut self) -> String {
+        let label = format!("_label{}", self.label_counter);
+        self.label_counter += 1;
+        label
     }
 }
 trait AsmBuilder {
@@ -303,4 +473,9 @@ impl AsmBuilder for String {
         self.push_str(&format!("\tneg\t{reg}\n"));
         self
     }
+}
+
+struct LoopCtx {
+    continue_label: String,
+    break_label: String,
 }

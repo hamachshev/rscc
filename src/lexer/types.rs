@@ -42,6 +42,11 @@ pub enum TokenKind {
     Colon,
     QMark,
     EOF,
+    For,
+    While,
+    Do,
+    Break,
+    Continue,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

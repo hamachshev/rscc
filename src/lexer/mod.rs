@@ -318,6 +318,26 @@ impl Lexer {
                 kind: TokenKind::Else,
                 span,
             },
+            "for" => Token {
+                kind: TokenKind::For,
+                span,
+            },
+            "while" => Token {
+                kind: TokenKind::While,
+                span,
+            },
+            "do" => Token {
+                kind: TokenKind::Do,
+                span,
+            },
+            "break" => Token {
+                kind: TokenKind::Break,
+                span,
+            },
+            "continue" => Token {
+                kind: TokenKind::Continue,
+                span,
+            },
             _ => Token {
                 kind: TokenKind::Ident(string),
                 span,

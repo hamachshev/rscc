@@ -76,6 +76,29 @@ pub enum Statement {
     },
     Expr(Expression),
     Block(Block),
+    For {
+        init: Option<Expression>,
+        condition: Expression,
+        post: Option<Expression>,
+        body: Box<Statement>,
+    },
+    ForDecl {
+        init: Option<Declare>,
+        condition: Expression,
+        post: Option<Expression>,
+        body: Box<Statement>,
+    },
+    While {
+        condition: Expression,
+        body: Box<Statement>,
+    },
+    Do {
+        body: Box<Statement>,
+        condition: Expression,
+    },
+    Break,
+    Continue,
+    Null,
 }
 
 impl Display for Statement {
@@ -89,6 +112,23 @@ impl Display for Statement {
                 otherwise,
             } => todo!(),
             Statement::Block(block) => todo!(),
+            Statement::For {
+                init,
+                condition,
+                post,
+                body,
+            } => todo!(),
+            Statement::ForDecl {
+                init,
+                condition,
+                post,
+                body,
+            } => todo!(),
+            Statement::While { condition, body } => todo!(),
+            Statement::Do { body, condition } => todo!(),
+            Statement::Break => todo!(),
+            Statement::Continue => todo!(),
+            Statement::Null => todo!(),
         }
     }
 }
@@ -115,6 +155,7 @@ pub enum Expression {
         then: Box<Expression>,
         otherwise: Box<Expression>,
     },
+    Null,
 }
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
@@ -202,6 +243,7 @@ impl Expression {
                 then,
                 otherwise,
             } => todo!(),
+            Expression::Null => todo!(),
         }
     }
 }
