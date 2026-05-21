@@ -48,7 +48,10 @@ impl CodeGen {
     fn gen_block(&mut self, Block(block): &Block) -> String {
         self.var_map_stack.push(HashMap::new());
         let mut body: String = block.iter().map(|x| self.gen_block_item(x)).collect();
-        let _ = self.var_map_stack.pop();
+        let var_map = self.var_map_stack.pop();
+        let var_offset = var_map.unwrap().keys().len() as u32;
+        self.ebp_offset -= var_offset;
+        body.push_str(&format!("\taddq \t${}, %rsp\n", var_offset * 8));
         body
     }
     fn gen_block_item(&mut self, block_item: &BlockItem) -> String {
